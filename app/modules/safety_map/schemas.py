@@ -50,6 +50,14 @@ SAFETY_CONCERN_CATEGORIES = (
 # severity / MAX_SEVERITY rather than a low/medium/high lookup.
 MAX_SEVERITY = 10
 
+# Agreed eligibility: only completed analyses contribute to the map. A report
+# the AI could not read is not evidence of anything and waits for review.
+ELIGIBLE_ANALYSIS_STATUS = "completed"
+
+# Confidence weights a report's contribution rather than excluding it, so a
+# genuine report the AI read poorly is quietly discounted, not deleted.
+CONFIDENCE_FLOOR = 0.0
+
 
 class Coordinate(BaseModel):
     """Explicit latitude/longitude. Never a GeoJSON ``[lon, lat]`` pair."""
@@ -70,6 +78,9 @@ class Hotspot(BaseModel):
     top_safety_concerns: Annotated[list[str], Field(max_length=3)]
     peak_time_bucket: TimeBucket | None
     most_recent_report_days_ago: Annotated[int, Field(ge=0)]
+    # Mean AI confidence across the reports behind this area. needs_review
+    # analyses are excluded upstream and never reach here.
+    mean_confidence: Annotated[float, Field(ge=0, le=1)]
     evidence_level: EvidenceLevel
 
 

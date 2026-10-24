@@ -78,6 +78,7 @@ Returns `HotspotsResponse`. Synthetic example:
       "top_safety_concerns": ["POOR_STREET_LIGHTING"],
       "peak_time_bucket": "evening",
       "most_recent_report_days_ago": 2,
+      "mean_confidence": 0.88,
       "evidence_level": "moderate"
     }
   ]
@@ -115,14 +116,23 @@ break the map.
 
 `severity` is a smallint 0-10, so hotspot weighting uses `severity / 10`.
 
+**Eligibility (agreed).** Only analyses with `analysis_status = 'completed'`
+contribute to hotspots or routing. A report the AI could not read is not
+evidence and waits for human review instead of appearing on the map.
+
+**Confidence (agreed).** `confidence` weights a report's contribution rather
+than excluding it: hotspot intensity and route exposure are both scaled by it,
+so an area the AI understood poorly moves a route recommendation less than one
+it read clearly. There is no hard confidence cut-off, because a genuine report
+written in mixed Sinhala and English can score low without being false. Each
+hotspot publishes `mean_confidence` so the map can say how well the underlying
+reports were understood.
+
 ### Open items
 
 1. **Location.** `incident_ai_analyses` has no coordinates; it is keyed by
    `report_id`. Hotspots need a reports table with a `geography(Point, 4326)`
    column, which does not exist on any branch yet. Until it does, Module 4
    reads a `map_eligible_incidents` view over synthetic seed data.
-2. **Eligibility.** Whether `analysis_status = 'needs_review'` rows, and rows
-   below some `confidence` threshold, should be excluded from hotspots.
-   Assumed excluded; confirm with the incident-AI and integrity owners.
-3. **Integrity.** Duplicate and anomaly flags come from the integrity module
+2. **Integrity.** Duplicate and anomaly flags come from the integrity module
    and are not yet available. Every seeded report currently counts once.
