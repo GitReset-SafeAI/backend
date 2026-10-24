@@ -5,9 +5,12 @@ from datetime import UTC, datetime
 from app.modules.safety_map.hotspots import Cluster, find_hotspots, overall_evidence
 from app.modules.safety_map.repository import MapDataError, build_repository
 from app.modules.safety_map.routing import (
+    avoidance_waypoints,
     build_fallback_routes,
     compare_routes,
     fetch_osrm_routes,
+    fetch_route_via,
+    score_route,
 )
 from app.modules.safety_map.schemas import (
     MIN_REPORTS_PER_HOTSPOT,
@@ -20,6 +23,15 @@ from app.modules.safety_map.schemas import (
 )
 
 DEFAULT_WINDOW_DAYS = 30
+
+
+def _path_length(geometry: list[tuple[float, float]]) -> float:
+    """Rough ordering only, so a cheap sum of coordinate steps is enough."""
+    return sum(
+        abs(geometry[index][0] - geometry[index - 1][0])
+        + abs(geometry[index][1] - geometry[index - 1][1])
+        for index in range(1, len(geometry))
+    )
 
 
 class SafetyMapService:
@@ -108,7 +120,21 @@ class SafetyMapService:
         if not candidates:
             candidates = build_fallback_routes(start, end)
 
-        scored, recommended, lowest_exposure = compare_routes(candidates, clusters, travel_mode)
+        # If every candidate runs through a reported area, ask the street
+        # network for one that goes round them. It may be much longer; that is
+        # the traveller's call, so it is offered rather than filtered out.
+        if street_network and all(
+            score_route(geometry, clusters)[1] for geometry, _ in candidates
+        ):
+            quickest = min(candidates, key=lambda candidate: _path_length(candidate[0]))
+            waypoints = avoidance_waypoints(quickest[0], clusters)
+            detour = await fetch_route_via(start, waypoints, end)
+            if detour is not None and not score_route(detour[0], clusters)[1]:
+                candidates = [*candidates, detour]
+
+        scored, recommended, lowest_exposure, clear = compare_routes(
+            candidates, clusters, travel_mode
+        )
         return RouteComparisonResponse(
             routes=[
                 Route(
@@ -130,6 +156,7 @@ class SafetyMapService:
             ],
             recommended_route_id=recommended,
             lowest_exposure_route_id=lowest_exposure,
+            clear_route_id=clear,
             evidence_level=overall_evidence(clusters),
             travel_mode=travel_mode,
             uses_street_network=street_network,

@@ -241,15 +241,77 @@ def build_fallback_routes(
     return routes
 
 
+def _metres_to_degrees(latitude: float, north_m: float, east_m: float) -> tuple[float, float]:
+    return north_m / 111_320.0, east_m / (111_320.0 * max(0.2, np.cos(np.radians(latitude))))
+
+
+def avoidance_waypoints(
+    geometry: list[tuple[float, float]],
+    clusters: list[Cluster],
+    max_points: int = 3,
+) -> list[tuple[float, float]]:
+    """Points to route through so a path clears every reported area it meets.
+
+    For each area the path enters, a waypoint is placed on the far side of it,
+    away from where the path currently runs. Routing through those points lets
+    the street network find a way round rather than guessing one.
+    """
+    waypoints: list[tuple[float, float]] = []
+    for cluster in clusters:
+        centre = (cluster.latitude, cluster.longitude)
+        nearest = min(geometry, key=lambda point: _haversine_m(point, centre))
+        if _haversine_m(nearest, centre) > cluster.radius_m:
+            continue
+
+        north = nearest[0] - centre[0]
+        east = nearest[1] - centre[1]
+        norm = float(np.hypot(north, east))
+        if norm == 0:
+            # The path runs through the centre, so either side will do.
+            north, east, norm = 1.0, 0.0, 1.0
+
+        # Far enough out that the route leaves the area rather than skirting it.
+        clearance_m = cluster.radius_m * 2.0 + 200.0
+        d_lat, d_lon = _metres_to_degrees(
+            centre[0], (north / norm) * clearance_m, (east / norm) * clearance_m
+        )
+        waypoints.append((centre[0] + d_lat, centre[1] + d_lon))
+
+    # Keep them in the order the path meets them, so the detour stays sensible.
+    waypoints.sort(
+        key=lambda point: min(range(len(geometry)), key=lambda i: _haversine_m(geometry[i], point))
+    )
+    return waypoints[:max_points]
+
+
+async def fetch_route_via(
+    origin: tuple[float, float],
+    waypoints: list[tuple[float, float]],
+    destination: tuple[float, float],
+) -> tuple[list[tuple[float, float]], float] | None:
+    """One street route passing through the given waypoints, if one exists."""
+    if not waypoints:
+        return None
+    async with httpx.AsyncClient(
+        timeout=OSRM_TIMEOUT_SECONDS, headers={"User-Agent": USER_AGENT}
+    ) as client:
+        routes = await _osrm_request(client, [origin, *waypoints, destination], alternatives=False)
+    return routes[0] if routes else None
+
+
 def compare_routes(
     candidates: list[tuple[list[tuple[float, float]], float]],
     clusters: list[Cluster],
     travel_mode: TravelMode = WALKING,
-) -> tuple[list[ScoredRoute], str | None, str | None]:
-    """Score every candidate, name the least-exposed one, and recommend or not.
+) -> tuple[list[ScoredRoute], str | None, str | None, str | None]:
+    """Score every candidate and name the useful ones.
 
-    The least-exposed route is always named, because "nothing qualified" is a
-    poor answer on its own; recommending it is a separate, stricter decision.
+    Three separate answers, because they answer different questions:
+      * the recommendation, a real improvement worth a modest detour
+      * the least-exposed route among those compared
+      * a clear route that enters no reported area at all, reported however
+        long it is, because "longer but clear" is a choice to offer rather
+        than one to make on someone's behalf
     """
     scored: list[ScoredRoute] = []
     for index, (geometry, service_duration_s) in enumerate(candidates):
@@ -282,7 +344,7 @@ def compare_routes(
         )
 
     if not scored:
-        return [], None, None
+        return [], None, None, None
 
     fastest = min(scored, key=lambda route: route.duration_s)
     scored = [
@@ -298,10 +360,28 @@ def compare_routes(
     # Ties go to the quicker route.
     least_exposed = min(scored, key=lambda route: (route.exposure_score, route.duration_s))
 
+    # A route that enters no reported area at all. Deliberately not subject to
+    # the detour allowance: how much longer is worth it is the traveller's
+    # call, not this function's.
+    clear_routes = [route for route in scored if route.hotspots_passed == 0]
+    clear = min(clear_routes, key=lambda route: route.duration_s) if clear_routes else None
+
+    def mark(routes: list[ScoredRoute], route_id: str | None, role: str) -> list[ScoredRoute]:
+        """Label one route's part in the comparison, wherever it was chosen."""
+        if route_id is None:
+            return routes
+        return [replace(route, role=role) if route.id == route_id else route for route in routes]
+
+    # Marked here rather than on one branch, so a clear route is labelled
+    # whether or not a recommendation was also made.
+    if clear is not None and clear.id != fastest.id:
+        scored = mark(scored, clear.id, "avoids-all")
+
     # Nothing to avoid: the quickest way is also the one with no reported areas
     # on it, so there is no case for travelling further.
     if fastest.hotspots_passed == 0 or fastest.exposure_score < NEGLIGIBLE_EXPOSURE:
-        return scored, None, least_exposed.id
+        # The quickest way is already clear, so there is nothing to offer past it.
+        return scored, None, least_exposed.id, None
 
     allowance = max(MAX_EXTRA_SECONDS, int(fastest.duration_s * MAX_EXTRA_FRACTION))
     eligible = [
@@ -317,10 +397,10 @@ def compare_routes(
     if not eligible:
         # Recommending nothing is a valid answer, not a failure: the caller
         # still learns which route is least exposed and can decide for itself.
-        return scored, None, least_exposed.id
+        return scored, None, least_exposed.id, clear.id if clear else None
 
     best = min(eligible, key=lambda route: route.exposure_score)
-    scored = [
-        replace(route, role="lower-exposure") if route.id == best.id else route for route in scored
-    ]
-    return scored, best.id, least_exposed.id
+    # A recommendation takes precedence over the clear label: it is the route
+    # being put forward, and two badges on one row would compete.
+    scored = mark(scored, best.id, "lower-exposure")
+    return scored, best.id, least_exposed.id, clear.id if clear else None

@@ -109,7 +109,7 @@ class HotspotsResponse(BaseModel):
 # Route comparison is outside the required initial scope; it is contracted here
 # so it can be added without altering the hotspot response.
 
-RouteRole = Literal["fastest", "lower-exposure", "alternative"]
+RouteRole = Literal["fastest", "lower-exposure", "alternative", "avoids-all"]
 
 TravelMode = Literal["walking", "driving"]
 
@@ -147,6 +147,10 @@ class RouteComparisonResponse(BaseModel):
     # when it does not clear the bar for a recommendation, so the caller is not
     # left with only "nothing qualified".
     lowest_exposure_route_id: str | None
+    # A route entering no reported area at all, when one was found. Offered
+    # however long it is: whether the extra time is worth it is the traveller's
+    # decision, not the service's.
+    clear_route_id: str | None
     evidence_level: EvidenceLevel
     travel_mode: TravelMode
     # False when the routing service could not be reached and the geometry is

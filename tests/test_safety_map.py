@@ -6,7 +6,13 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.modules.safety_map.hotspots import find_hotspots
 from app.modules.safety_map.repository import EligibleIncident
-from app.modules.safety_map.routing import build_fallback_routes, compare_routes, score_route
+from app.modules.safety_map.routing import (
+    _haversine_m,
+    avoidance_waypoints,
+    build_fallback_routes,
+    compare_routes,
+    score_route,
+)
 from app.modules.safety_map.schemas import MIN_HOTSPOT_RADIUS_M, MIN_REPORTS_PER_HOTSPOT
 
 COLOMBO_BBOX = "79.80,6.80,79.95,6.96"
@@ -112,7 +118,7 @@ def test_a_route_is_recommended_only_when_it_is_a_real_improvement():
     origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
     clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
 
-    routes, recommended, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
+    routes, recommended, _, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
 
     fastest = next(route for route in routes if route.role == "fastest")
     assert fastest.extra_duration_s == 0
@@ -172,7 +178,7 @@ def test_no_recommendation_when_the_fastest_route_passes_nothing():
     # A reported area far from every candidate: all routes score near zero.
     clusters, _ = find_hotspots([incident(6.95, 79.95) for _ in range(5)])
 
-    routes, recommended, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
+    routes, recommended, _, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
 
     assert all(route.hotspots_passed == 0 for route in routes)
     # Nothing to avoid, so no detour may be recommended.
@@ -183,7 +189,7 @@ def test_no_recommendation_for_a_negligible_exposure_difference():
     origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
     clusters, _ = find_hotspots([incident(6.9, 79.88) for _ in range(5)])
 
-    routes, recommended, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
+    routes, recommended, _, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
 
     fastest = next(route for route in routes if route.role == "fastest")
     if fastest.exposure_score < 5.0:
@@ -247,7 +253,7 @@ def test_the_least_exposed_route_is_named_even_without_a_recommendation():
     origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
     clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
 
-    routes, recommended, lowest = compare_routes(
+    routes, recommended, lowest, _ = compare_routes(
         build_fallback_routes(origin, destination), clusters
     )
 
@@ -264,8 +270,8 @@ def test_driving_is_quicker_than_walking_over_the_same_roads():
     # A service duration is supplied, as OSRM would.
     candidates = [([(6.8872, 79.8597), (6.8910, 79.8570), (6.8951, 79.8541)], 120.0)]
 
-    walking, _, _ = compare_routes(candidates, [], "walking")
-    driving, _, _ = compare_routes(candidates, [], "driving")
+    walking, _, _, _ = compare_routes(candidates, [], "walking")
+    driving, _, _, _ = compare_routes(candidates, [], "driving")
 
     # Walking time is derived from the distance; driving trusts the service.
     assert driving[0].duration_s == 120
@@ -288,3 +294,40 @@ def test_route_comparison_states_its_travel_mode(client):
     assert body["travel_mode"] == "driving"
     # The caller is always told a pedestrian profile was not used.
     assert body["pedestrian_profile_available"] is False
+
+
+def test_a_clear_route_is_offered_however_long_it_is():
+    clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
+
+    direct = [(6.8872, 79.8597), (6.8905, 79.8565), (6.8951, 79.8541)]
+    # Far longer, but it enters no reported area.
+    long_way_round = [
+        (6.8872, 79.8597),
+        (6.8870, 79.8700),
+        (6.8960, 79.8700),
+        (6.8951, 79.8541),
+    ]
+
+    routes, _, _, clear = compare_routes([(direct, 0.0), (long_way_round, 0.0)], clusters)
+
+    assert clear is not None
+    offered = next(route for route in routes if route.id == clear)
+    assert offered.hotspots_passed == 0
+    assert offered.role == "avoids-all"
+    # The point of the feature: it is offered even though it takes much longer.
+    fastest = next(route for route in routes if route.role == "fastest")
+    assert offered.duration_s > fastest.duration_s
+
+
+def test_avoidance_waypoints_sit_clear_of_the_area_they_route_around():
+    clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
+    through = [(6.8872, 79.8597), (6.8905, 79.8565), (6.8951, 79.8541)]
+
+    waypoints = avoidance_waypoints(through, clusters)
+
+    assert waypoints
+    area = clusters[0]
+    for point in waypoints:
+        distance = _haversine_m(point, (area.latitude, area.longitude))
+        # Outside the area, not merely on its edge.
+        assert distance > area.radius_m
