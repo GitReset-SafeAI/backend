@@ -7,6 +7,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.reports import router as reports_router
 from app.core.config import get_settings
 from app.core.errors import validation_error_handler
+from app.modules.incident_ai.router import router as incident_ai_router
 
 
 def create_app() -> FastAPI:
@@ -23,6 +24,7 @@ def create_app() -> FastAPI:
     )
     application.include_router(health_router, prefix="/api/v1")
     application.include_router(reports_router, prefix="/api/v1")
+    application.include_router(incident_ai_router, prefix="/api/v1")
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     return application
 
