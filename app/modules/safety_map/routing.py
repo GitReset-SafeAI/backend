@@ -36,6 +36,13 @@ MIN_EXPOSURE_REDUCTION = 0.25
 MAX_EXTRA_SECONDS = 300
 MAX_EXTRA_FRACTION = 0.3
 
+# Exposure decays with distance, so a route that enters no reported area still
+# scores slightly above zero simply by passing further from one. Below this the
+# difference between two routes is noise, and spending extra minutes on it
+# would be a recommendation with nothing behind it.
+NEGLIGIBLE_EXPOSURE = 5.0
+MIN_ABSOLUTE_EXPOSURE_DROP = 5.0
+
 
 @dataclass(frozen=True, slots=True)
 class ScoredRoute:
@@ -263,12 +270,20 @@ def compare_routes(
         for route in scored
     ]
 
+    # Nothing to avoid: the quickest way is also the one with no reported areas
+    # on it, so there is no case for walking further.
+    if fastest.hotspots_passed == 0 or fastest.exposure_score < NEGLIGIBLE_EXPOSURE:
+        return scored, None
+
     allowance = max(MAX_EXTRA_SECONDS, int(fastest.duration_s * MAX_EXTRA_FRACTION))
     eligible = [
         route
         for route in scored
         if route.id != fastest.id
         and route.exposure_score <= fastest.exposure_score * (1 - MIN_EXPOSURE_REDUCTION)
+        # Relative alone is not enough: 0.4 to 0.3 is a 25% drop and means
+        # nothing. The gap must also be large enough to be real.
+        and (fastest.exposure_score - route.exposure_score) >= MIN_ABSOLUTE_EXPOSURE_DROP
         and route.extra_duration_s <= allowance
     ]
     if not eligible:

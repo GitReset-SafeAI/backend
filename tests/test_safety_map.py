@@ -165,3 +165,26 @@ def test_place_search_returns_public_place_names_only(client, monkeypatch):
     for place in response.json():
         # A place is reference data; nothing about a report may ride along.
         assert set(place) == {"id", "name", "context", "coordinate"}
+
+
+def test_no_recommendation_when_the_fastest_route_passes_nothing():
+    origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
+    # A reported area far from every candidate: all routes score near zero.
+    clusters, _ = find_hotspots([incident(6.95, 79.95) for _ in range(5)])
+
+    routes, recommended = compare_routes(build_fallback_routes(origin, destination), clusters)
+
+    assert all(route.hotspots_passed == 0 for route in routes)
+    # Nothing to avoid, so no detour may be recommended.
+    assert recommended is None
+
+
+def test_no_recommendation_for_a_negligible_exposure_difference():
+    origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
+    clusters, _ = find_hotspots([incident(6.9, 79.88) for _ in range(5)])
+
+    routes, recommended = compare_routes(build_fallback_routes(origin, destination), clusters)
+
+    fastest = next(route for route in routes if route.role == "fastest")
+    if fastest.exposure_score < 5.0:
+        assert recommended is None
