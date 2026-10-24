@@ -31,6 +31,28 @@ The returned `ReportResponse` omits `user_id`. No public report listing or
 retrieval is implemented. Validation errors omit input values and context, and
 storage failures return a generic message without provider error details.
 
+Report creation can send original incident text and the supplied language hint
+to the configured Groq provider for English translation. No account/user ID,
+JWT, coordinates, timestamps, or questionnaire fields are added to that request.
+Personal details embedded in the description can still reach the provider;
+provider data handling and appropriate user disclosure require review before
+real sensitive reports are used. The original text remains unchanged in storage.
+English reports bypass the provider. Legacy supplied translations for other
+language hints remain accepted and are not independently verified.
+
+Translation failures return a sanitized 503 before any report INSERT. There is
+no untranslated fallback labelled as successful English, no retained provider
+response, and no new translation status or pending record. Logs must not contain
+original/translated descriptions, provider bodies, credentials, or token claims.
+Language hints and model-reported success are not verified language detection or
+proof of translation quality. Mocked tests do not validate Sinhala/Tamil accuracy.
+
+The stored-report analysis operation requires verified authentication and loads
+translation through a report-ID and verified-owner filter. It ignores caller
+replacement text and treats missing/foreign reports identically. The privileged
+read also checks returned ownership and does not expose report content through a
+new endpoint. Existing analysis output remains provisional, not proof of events.
+
 Invalid authentication is rejected before persistence; verification outages fail
 closed. The backend retains only the UUID identity needed for ownership, not
 token metadata. This provides public anonymity, not technical unlinkability:
@@ -46,3 +68,9 @@ claims, reports, public responses, logs, or analytics. Full NIC retention is not
 approved; format checks would not prove identity, and plain unsalted hashes
 would not anonymise NICs. See [registration decisions](authentication.md#nic-registration-is-a-separate-unresolved-integration)
 for the unresolved purpose, provider, access, protection, and retention decisions.
+
+The optional authenticated [NIC-classification endpoint](nic-classification.md)
+parses only the number's encoded indicator in memory. It does not persist the
+NIC or result, contact a verification provider, update an account, or decide
+eligibility. Its response explicitly states `identity_verified: false` and omits
+the number and birth date. Report submission still does not require this step.

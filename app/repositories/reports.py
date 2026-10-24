@@ -17,6 +17,36 @@ class ReportRepository:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
 
+    async def get_owned_translation(self, report_id: UUID, reporter_id: UUID) -> str | None:
+        """Load minimal analysis input using both trusted ownership and report identity."""
+        if not isinstance(report_id, UUID) or not isinstance(reporter_id, UUID):
+            raise ReportPersistenceError
+        try:
+            response = await self.client.get(
+                "reports",
+                params={
+                    "select": "id,user_id,translated_text",
+                    "id": f"eq.{report_id}",
+                    "user_id": f"eq.{reporter_id}",
+                    "limit": "1",
+                },
+            )
+            response.raise_for_status()
+            rows = response.json()
+            if response.status_code != 200 or not isinstance(rows, list) or len(rows) > 1:
+                raise ReportPersistenceError
+            if not rows:
+                return None
+            row = rows[0]
+            if UUID(row["id"]) != report_id or UUID(row["user_id"]) != reporter_id:
+                raise ReportPersistenceError
+            text = row["translated_text"]
+            if not isinstance(text, str) or not text.strip() or not 1 <= len(text) <= 5000:
+                raise ReportPersistenceError
+            return text
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError):
+            raise ReportPersistenceError from None
+
     async def create(self, submission: ReportSubmission, reporter_id: UUID) -> ReportResponse:
         """Insert all submitted fields, using database-generated identity and time."""
         if not isinstance(reporter_id, UUID):

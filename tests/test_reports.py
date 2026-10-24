@@ -13,7 +13,8 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import require_verified_reporter_id
 from app.core.config import Settings, get_settings
-from app.schemas.report import ReportResponse, ReportSubmission
+from app.modules.reporting.transcription.translation import TranslationError
+from app.schemas.report import LanguageHint, ReportResponse, ReportSubmission
 
 REPORTER_ID = UUID("11111111-1111-4111-8111-111111111111")
 
@@ -22,6 +23,7 @@ class MockDataAPI:
     """Emulate Data API creation responses, recording synthetic rows for assertions."""
 
     def __init__(self) -> None:
+        self.client_type = httpx.AsyncClient
         self.rows: list[dict[str, object]] = []
         self.requests: list[httpx.Request] = []
         self.status_code = 201
@@ -66,6 +68,7 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterat
         "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
         "LLM_API_KEY",
+        "GROQ_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("APP_ENV", "development")
@@ -116,6 +119,246 @@ def payload() -> dict[str, object]:
         "input_method": "text",
         "language_hint": "en",
     }
+
+
+class FakeTranslator:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, LanguageHint]] = []
+        self.result = "Synthetic demo: someone followed me after I left the bus."
+        self.failure = False
+
+    async def translate(self, original_text: str, language_hint: LanguageHint) -> str:
+        self.calls.append((original_text, language_hint))
+        if self.failure:
+            raise TranslationError
+        return self.result
+
+
+@pytest.fixture
+def translator(monkeypatch: pytest.MonkeyPatch) -> FakeTranslator:
+    translator = FakeTranslator()
+    monkeypatch.setattr("app.api.dependencies.GroqReportTranslator", lambda **kwargs: translator)
+    return translator
+
+
+@pytest.mark.parametrize("legacy_translation", [None, "Different legacy English wording."])
+def test_english_bypasses_translation_and_uses_exact_original(
+    application: FastAPI,
+    data_api: MockDataAPI,
+    payload: dict[str, object],
+    translator: FakeTranslator,
+    legacy_translation: str | None,
+) -> None:
+    payload["original_text"] = "  Synthetic report: I am not sure what happened.\n"
+    if legacy_translation is None:
+        del payload["translated_text"]
+    else:
+        payload["translated_text"] = legacy_translation
+    with TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert response.status_code == 201
+    assert response.json()["translated_text"] == payload["original_text"]
+    assert data_api.rows[0]["original_text"] == payload["original_text"]
+    assert data_api.rows[0]["translated_text"] == payload["original_text"]
+    assert translator.calls == []
+
+
+@pytest.mark.parametrize(
+    ("language_hint", "original_text"),
+    [
+        ("si", "  කෙනෙක් මගේ පස්සෙන් ආවා.\n"),
+        ("ta", "  ஒருவர் என்னைப் பின்தொடர்ந்தார்.\n"),
+        ("si-Latn", "  kenek mage passen aawa.\n"),
+        ("mixed", "  බස් එකෙන් බැස්සාට පස්සේ someone followed me.\n"),
+        ("unknown", "  kenek mage passen aawa.\n"),
+    ],
+)
+def test_translate_before_inserting_and_preserve_report_fields(
+    application: FastAPI,
+    data_api: MockDataAPI,
+    payload: dict[str, object],
+    translator: FakeTranslator,
+    language_hint: str,
+    original_text: str,
+) -> None:
+    del payload["translated_text"]
+    payload.update(
+        original_text=original_text,
+        language_hint=language_hint,
+        input_method="voice",
+        latitude=6.5,
+        longitude=80.5,
+        occurred_at="2026-10-23T19:00:00+05:30",
+        lighting_condition="PARTIALLY_LIT",
+        crowd_level=None,
+        current_safety_status=None,
+    )
+    with TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert response.status_code == 201
+    saved = response.json()
+    assert saved["original_text"] == original_text
+    assert saved["translated_text"] == translator.result
+    assert translator.calls == [(original_text, LanguageHint(language_hint))]
+    expected = ReportSubmission.model_validate({**payload, "translated_text": translator.result})
+    assert data_api.rows[0] == {**saved, "user_id": str(REPORTER_ID)}
+    assert {field: saved[field] for field in ReportSubmission.model_fields} == expected.model_dump(
+        mode="json"
+    )
+
+
+@pytest.mark.parametrize("language_hint", ["si", "ta", "si-Latn", "mixed", "unknown"])
+def test_legacy_translations_are_accepted_without_provider_verification(
+    application: FastAPI,
+    data_api: MockDataAPI,
+    payload: dict[str, object],
+    translator: FakeTranslator,
+    language_hint: str,
+) -> None:
+    payload.update(original_text="Synthetic non-English source", language_hint=language_hint)
+    with TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert response.status_code == 201
+    assert response.json()["translated_text"] == payload["translated_text"]
+    assert data_api.rows[0]["user_id"] == str(REPORTER_ID)
+    assert translator.calls == []
+
+
+def test_required_translation_failure_does_not_insert(
+    application: FastAPI,
+    data_api: MockDataAPI,
+    payload: dict[str, object],
+    translator: FakeTranslator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    del payload["translated_text"]
+    payload.update(original_text="Synthetic private Singlish report", language_hint="si-Latn")
+    translator.failure = True
+    with caplog.at_level("INFO"), TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Report translation is unavailable. Report was not created."
+    }
+    assert len(translator.calls) == 1
+    assert data_api.rows == data_api.requests == []
+    assert payload["original_text"] not in response.text + caplog.text
+
+
+def test_missing_translation_credentials_does_not_insert(
+    application: FastAPI, data_api: MockDataAPI, payload: dict[str, object]
+) -> None:
+    del payload["translated_text"]
+    payload["language_hint"] = "si"
+    with TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Report translation is unavailable. Report was not created."
+    assert data_api.requests == data_api.rows == []
+
+
+def test_unauthenticated_request_cannot_call_translation(
+    application: FastAPI,
+    data_api: MockDataAPI,
+    payload: dict[str, object],
+    translator: FakeTranslator,
+) -> None:
+    del application.dependency_overrides[require_verified_reporter_id]
+    del payload["translated_text"]
+    payload["language_hint"] = "ta"
+    with TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert response.status_code == 401
+    assert translator.calls == data_api.requests == data_api.clients == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "success",
+        "empty",
+        "malformed",
+        "refused",
+        "oversized",
+        "uncertain",
+        "timeout",
+        "unavailable",
+    ],
+)
+def test_real_translation_adapter_controls_whether_report_is_inserted(
+    application: FastAPI,
+    data_api: MockDataAPI,
+    payload: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: str,
+) -> None:
+    settings = application.dependency_overrides[get_settings]().model_copy(
+        update={
+            "groq_api_key": Settings(_env_file=None, groq_api_key="dummy-groq-key").groq_api_key
+        }
+    )
+    application.dependency_overrides[get_settings] = lambda: settings
+    del payload["translated_text"]
+    payload.update(original_text="  Synthetic private Singlish source\n", language_hint="si-Latn")
+    requests: list[httpx.Request] = []
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "example.invalid":
+            return data_api(request)
+        assert request.url.host == "api.groq.com"
+        requests.append(request)
+        user_input = json.loads(json.loads(request.content)["messages"][1]["content"])
+        assert user_input == {"original_text": payload["original_text"], "language_hint": "si-Latn"}
+        if failure == "timeout":
+            raise httpx.ReadTimeout("dummy-private-provider-detail")
+        if failure == "unavailable":
+            return httpx.Response(503, json={"error": "dummy-private-provider-detail"})
+        if failure == "malformed":
+            return httpx.Response(200, content=b"not JSON: dummy-private-provider-detail")
+        result = {
+            "status": "unable_to_translate" if failure == "uncertain" else "translated",
+            "translated_text": (
+                "Synthetic English translation"
+                if failure == "success"
+                else "a" * 5001
+                if failure == "oversized"
+                else ""
+            ),
+        }
+        message = (
+            {"refusal": "dummy-private-provider-detail"}
+            if failure == "refused"
+            else {"content": json.dumps(result)}
+        )
+        return httpx.Response(
+            200, json={"choices": [{"finish_reason": "stop", "message": message}]}
+        )
+
+    def client_factory(**kwargs: object) -> httpx.AsyncClient:
+        assert kwargs["trust_env"] is False
+        return data_api.client_type(**kwargs, transport=httpx.MockTransport(transport))
+
+    monkeypatch.setattr("app.api.dependencies.httpx.AsyncClient", client_factory)
+    with caplog.at_level("INFO"), TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert len(requests) == 1
+    if failure == "success":
+        assert response.status_code == 201
+        assert response.json()["original_text"] == payload["original_text"]
+        assert response.json()["translated_text"] == "Synthetic English translation"
+        assert data_api.rows[0]["translated_text"] == "Synthetic English translation"
+        assert len(data_api.requests) == 1
+        return
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Report translation is unavailable. Report was not created."
+    assert data_api.requests == data_api.rows == []
+    for private_value in (
+        payload["original_text"],
+        "dummy-groq-key",
+        "dummy-private-provider-detail",
+    ):
+        assert private_value not in response.text + caplog.text
 
 
 def test_create_minimum_report(
@@ -238,7 +481,6 @@ def test_missing_required_input(application: FastAPI, data_api: MockDataAPI) -> 
     assert response.status_code == 422
     assert {error["loc"][-1] for error in response.json()["detail"]} == {
         "original_text",
-        "translated_text",
         "input_method",
         "language_hint",
     }

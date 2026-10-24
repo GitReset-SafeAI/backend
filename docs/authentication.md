@@ -6,8 +6,10 @@ Protected routes accept `Authorization: Bearer <Supabase access token>`.
 `get_current_user` in `app/api/dependencies.py` returns an immutable
 `AuthenticatedUser` containing only the verified subject UUID. All four feature
 modules can reuse it; report creation uses `require_verified_reporter_id` to
-pass that UUID to the repository. No login, registration, refresh-token, or NIC
-endpoint is implemented in this backend. Health remains public.
+pass that UUID to the repository. No login, registration, or refresh-token
+endpoint is implemented in this backend. The authenticated, on-demand
+[NIC classification endpoint](nic-classification.md) only parses an encoded
+indicator; it does not verify identity or eligibility. Health remains public.
 
 The repository did not establish the project's active signing algorithm.
 Configuring a JWKS URL alone does not establish asymmetric signing. Without
@@ -106,8 +108,10 @@ team agreement. Successful JWT verification establishes the Supabase account's
 identity, not a person's NIC, gender, or legal identity.
 
 **Current policy:** report submission requires a verified Supabase account token
-and does not require NIC collection or verification. No NIC fields, storage,
-format validator, derived identifier, or simulated verification were added.
+and does not require NIC collection or verification. The separately invoked
+NIC-classification prototype processes a number transiently and returns its
+encoded indicator with `identity_verified: false`. No NIC storage, derived
+identifier, registration prerequisite, or simulated verification is implemented.
 Do not put NIC values in Supabase Auth user/app metadata or custom JWT claims,
 tokens, report records, public APIs, logs, or hotspot datasets.
 
@@ -116,12 +120,16 @@ recognise the older nine ASCII digits followed by `V`/`X` (case-insensitive) and
 the newer twelve ASCII digits. The [Department for Registration of Persons
 FAQ](https://drp.gov.lk/en/faq.php) describes the change between these formats.
 Matching either shape is **not** proof of issuance, authenticity, or ownership.
-Do not infer eligibility, gender, or verification from the number's structure.
+The encoded gender indicator is not proof of the person's actual gender and
+must not grant eligibility or verification. See the
+[parser's date-encoding rules and limitations](nic-classification.md#encoding-and-date-validation).
 
-Before collecting any NIC, agree on its necessary purpose, whether it is
-optional, a trusted provider or reviewer process, user notices/consent, and how
-users without verification can register/report. Prefer a provider reference and
-restricted verification outcome over retaining the full number. If full retention
+Before adding NIC collection to registration or identity verification, agree on
+its necessary purpose, whether it is optional, a trusted provider or reviewer
+process, user notices/consent, and how users without verification can
+register/report. The transient parser creates no eligibility record. Prefer a
+provider reference and restricted verification outcome over retaining the full
+number. If full retention
 is explicitly justified, approve a separate private identity store, encryption
 and key management, narrowly authorised access with audited/redacted events,
 retention/deletion deadlines, and disclosure controls first. None exists yet.

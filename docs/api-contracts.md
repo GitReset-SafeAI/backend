@@ -5,9 +5,9 @@ schema at `/openapi.json`. Versioned endpoints use the `/api/v1` prefix.
 
 `app/main.py` mounts the central `app/api/router.py`, which registers health and
 the `reporting`, `incident_ai`, `integrity`, and `safety_map` feature routers.
-Feature routers live in `app/modules/<feature>/router.py` and currently expose
-no endpoints. Their URL paths, shared schemas, and inter-module interfaces remain
-undecided; the module structure does not define new API contracts.
+Feature routers live in `app/modules/<feature>/router.py`. The reporting creation
+route lives in `app/api/routes/reports.py`; its translation business logic lives
+in the reporting module. Relevant contracts are described below.
 
 ## Current endpoint
 
@@ -20,9 +20,20 @@ undecided; the module structure does not define new API contracts.
 The version comes from `APP_VERSION`. This endpoint confirms process health only;
 it does not check Supabase or an LLM service.
 
+## Local NIC classification: POST /api/v1/authentication/nic-classification
+
+Requires the existing verified Supabase bearer token. Accepts `{"nic": "<number>"}`
+and returns only `gender_indicator` (`male|female`), `nic_format` (`old|new`),
+`classification_method: "nic_format"`, and `identity_verified: false` with HTTP 200.
+The NIC is processed transiently, never returned or persisted. Invalid input uses
+the shared redacted 422 detail-list response; authentication uses the existing
+401/403/503 responses. This does not establish identity, actual gender, age, or
+eligibility and is not required for reporting. See
+[NIC classification](nic-classification.md) for synthetic examples and date rules.
+
 ## Report creation: POST /api/v1/reports
 
-The route accepts `ReportSubmission` and returns `ReportResponse`. Send
+The route accepts `ReportCreateRequest` and returns the unchanged `ReportResponse`. Send
 `Authorization: Bearer <Supabase access token>`. The backend verifies ES256/RS256
 signatures against the configured project JWKS, the exact project issuer,
 `authenticated` audience/role, expiry, and UUID subject before storage access.
@@ -34,7 +45,7 @@ for configuration, supported signing mode, key rotation, and remaining live setu
 | Request field | Required | Validation |
 |---|---|---|
 | `original_text` | Yes | Nonblank string, 1–5000 supplied characters |
-| `translated_text` | Yes | Nonblank string, 1–5000 supplied characters; English text must also be supplied here |
+| `translated_text` | No | Legacy English translation, nonblank and 1–5000 characters if supplied; omit for backend preparation; explicit null is invalid |
 | `input_method` | Yes | `text` or `voice` |
 | `language_hint` | Yes | `si`, `si-Latn`, `en`, `ta`, `mixed`, or `unknown` |
 | `latitude`, `longitude` | No | Both values or both null/omitted; latitude −90–90, longitude −180–180 |
@@ -46,7 +57,42 @@ The backend derives ownership from the verified dependency; the database
 generates the report ID and submission timestamp. The optional-context example
 below is a valid request. All three context fields can be removed for a minimal
 request. `voice` means the payload already contains final report text; this
-endpoint does not accept audio or perform transcription or translation.
+endpoint does not accept audio or perform transcription. Translation operates on
+the final text and finishes before the database INSERT.
+
+English (`en`) uses `original_text` unchanged as `translated_text`, without a
+provider call, even if a different legacy translation was supplied. For other
+hints, a supplied translation remains accepted for compatibility; it is not
+independently checked for language, accuracy, or agreement with the original.
+The response has no provider-verification or translation-quality guarantee.
+
+When the translation is omitted, `si` and `ta` use Sinhala-to-English and
+Tamil-to-English translation. `si-Latn`, `mixed`, and `unknown` use an explicitly
+multilingual prompt; Latin script does not establish English. The backend uses
+the caller's hint, not an implemented language detector. The adapter requires a
+structured success result, rejects blank/oversized output, refusals, incomplete
+generation, untranslated Sinhala/Tamil script, and obvious non-English echoes,
+and fails when the model reports that it cannot translate reliably. These checks
+do not establish semantic translation accuracy.
+
+The original text is preserved exactly, including whitespace and Unicode.
+`ReportSubmission` remains the strict prepared/persisted contract: its translation
+is still mandatory and nonblank, as is `ReportResponse.translated_text`.
+
+Synthetic request asking the backend to translate (no `translated_text`):
+
+```json
+{
+  "original_text": "කෙනෙක් මගේ පස්සෙන් ආවා.",
+  "language_hint": "si",
+  "input_method": "text"
+}
+```
+
+Translation uses the existing Groq HTTPX integration settings: `GROQ_API_KEY`,
+`LLM_MODEL`, `LLM_BASE_URL`, and `LLM_TIMEOUT_SECONDS`. `LLM_API_KEY` is not an
+automatic fallback. Missing provider credentials do not prevent English or
+legacy translated submissions. No new provider dependency or migration is needed.
 
 A successful authenticated insert returns HTTP 201 with this synthetic example body:
 
@@ -72,11 +118,11 @@ delete, or moderation endpoint is provided.
 
 | Status | Meaning |
 |---|---|
-| `201` | Data API returned exactly one complete saved row with the expected owner and submitted values, validated through `ReportResponse` |
+| `201` | English preparation succeeded and the Data API returned exactly one complete saved row with the expected owner and prepared values, validated through `ReportResponse` |
 | `401` | Missing/malformed bearer credentials or invalid/unsupported token; includes `WWW-Authenticate: Bearer` |
 | `403` | Verified token lacks the authenticated-user role |
 | `422` | Request validation failed; `detail` is a list of `loc`, `msg`, and `type`, without submitted input values or validation context |
-| `503` | Verification configuration/trusted keys are unavailable, storage configuration is unavailable, the Data API failed/timed out, or its saved-row response was incomplete/invalid |
+| `503` | Authentication, required translation, or storage is unavailable, or a provider response failed validation |
 
 Authentication can pre-empt schema validation. Missing or invalid credentials return:
 
@@ -85,11 +131,44 @@ Authentication can pre-empt schema validation. Missing or invalid credentials re
 ```
 
 Verification infrastructure failures use `{"detail": "Authentication is unavailable."}`.
+Required translation failures use
+`{"detail": "Report translation is unavailable. Report was not created."}`.
+No INSERT is attempted in that case; untranslated text is never substituted as a
+successful provider translation. There is no partial report, automatic translation
+retry, or pending-translation record. The caller can retry with the original text.
 Storage failures use `{"detail": "Report storage is unavailable."}`. Provider
 errors, credentials, SQL details, and stack traces are not returned. A timeout or
 invalid response can occur after a database commit; the backend does not claim
 the report was unsaved and does not automatically retry creation. Idempotency is
 not implemented.
+
+## Analyze a stored report: POST /api/v1/incident-ai/analyze
+
+Requires the same verified Supabase bearer identity as report creation. The
+backend loads `id`, `user_id`, and `translated_text` from `reports`, filtering by
+both `report_id` and the verified user's ID. It checks the returned IDs again
+before classification. No public report retrieval endpoint is added.
+
+```json
+{
+  "report_id": "4bf9b65c-9451-40e0-a40c-e26376a3a5d9"
+}
+```
+
+`reported_time` and `street_lights` retain their existing optional analysis
+contracts. Legacy `translated_text` is optional/deprecated and ignored; the
+classifier always receives the owned report's stored English text. Caller-supplied
+owner fields are rejected. Reporting does not automatically trigger classification.
+
+The existing `IncidentAnalysis` response and HTTP 200 success contract are unchanged.
+Missing/invalid authentication uses 401, insufficient role 403, and unavailable
+verification/storage 503. A missing or foreign-owned report returns the same
+`404` with `{"detail": "Report not found."}`, without calling classification.
+Unreadable or invalid report rows return `503` with
+`{"detail": "Report storage is unavailable."}`. Classification-provider failure
+retains the existing `needs_review` fallback; analysis persistence failure retains
+`503` with `{"detail": "Could not save incident analysis"}`. Neither changes the
+already-created report.
 
 ## Adding endpoints
 
@@ -100,9 +179,8 @@ Specify pagination, timestamps/time zones, and coordinate conventions where rele
 Use synthetic examples without personal data. Keep OpenAPI and contract tests
 consistent, and coordinate breaking changes with the mobile team.
 
-Classification, severity and anomaly detection
-have no endpoints implemented yet. The safety map endpoints are implemented
-and documented below.
+The safety map endpoints are documented below. Incident-analysis classification
+and severity logic remain separate from report translation.
 
 ## Optional report context
 

@@ -19,7 +19,8 @@ The table contains:
   `reports_user_id_idx` index for ownership queries.
 - Required original and translated text, each with a trimmed length of 1–5000
   characters. The checks trim POSIX whitespace for validation only; stored text
-  is preserved. English reports must also supply translated text.
+  is preserved. Every INSERT includes English text in `translated_text`; the
+  reporting service copies English originals or prepares a translation first.
 - Required `input_method` and `language_hint`, constrained to the agreed values
   in `app/schemas/report.py`.
 - Optional latitude and longitude within their agreed ranges, required together.
@@ -62,7 +63,7 @@ no automatic creation retries. It does not initialise an Auth client or attach
 user tokens to the privileged client. The optional legacy settings remain
 unchanged but are not a fallback for this modern-key transport.
 
-The repository sends all ten submission fields plus the trusted `user_id` in a
+The repository sends all ten prepared submission fields plus the trusted `user_id` in a
 single INSERT, omitting `id` and `submitted_at`. It requests the created row via
 `Prefer: return=representation`, including all twelve response fields and the
 owner for an internal consistency check. The returned row must be complete,
@@ -76,6 +77,18 @@ Optional omitted and explicitly null values are stored as SQL NULL. Explicit
 unknown/prefer-not-to-say enum choices remain their actual string values. No
 incident classification, inferred safety status, journey history, or extra
 location data is stored.
+
+Translation adds no columns, grants, or migrations. `ReportCreateRequest` permits
+omitting a translation, but the reporting service builds a strict `ReportSubmission`
+before calling this repository. A required translation failure prevents the INSERT;
+there is no pending/untranslated database row. Legacy supplied translations for
+non-English hints remain accepted without independent verification.
+
+`ReportRepository.get_owned_translation` uses the existing SELECT privilege for
+analysis input. It selects only `id`, `user_id`, and `translated_text`, filters by
+both report ID and verified owner ID, and validates returned identity and nonblank
+text. This is an internal read, not a new retrieval API. It does not require
+UPDATE/DELETE privileges or change RLS, client grants, or `ON DELETE RESTRICT`.
 
 See [Supabase's Data API](https://supabase.com/docs/guides/api) and
 [API key guidance](https://supabase.com/docs/guides/getting-started/api-keys).

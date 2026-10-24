@@ -6,6 +6,7 @@ from typing import Self
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 
 class InputMethod(StrEnum):
@@ -93,6 +94,26 @@ class ReportSubmission(BaseModel):
         if (self.latitude is None) != (self.longitude is None):
             raise ValueError("Latitude and longitude must be provided together")
         return self
+
+
+class ReportCreateRequest(ReportSubmission):
+    """Creation input; omission requests server-side English preparation."""
+
+    translated_text: str | SkipJsonSchema[None] = Field(
+        default=None,
+        min_length=1,
+        max_length=5000,
+        description="Optional legacy translation. Omit to request English preparation; "
+        "null is invalid.",
+    )
+
+    @field_validator("translated_text", mode="before")
+    @classmethod
+    def reject_explicit_null_translation(cls, value: object) -> object:
+        """Keep null invalid while allowing the field to be absent entirely."""
+        if value is None:
+            raise ValueError("Omit translated_text instead of supplying null")
+        return value
 
 
 class ReportResponse(ReportSubmission):
