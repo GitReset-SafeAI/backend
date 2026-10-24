@@ -10,7 +10,7 @@ harassment, real reports, or real risk at those places. Regenerate with:
 import json
 import random
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 SEED = 20261023
@@ -76,37 +76,37 @@ CLUSTERS = [
 
 PROFILES = {
     "following_night": {
-        "incident": ["UNWANTED_FOLLOWING", "THREATENING_BEHAVIOUR"],
-        "concern": ["PREVIOUS_SAFETY_CONCERNS_AT_LOCATION", None],
+        "incident": ["UNWANTED_FOLLOWING"],
+        "concern": [None],
         "lights": ["poorly_lit_or_dark", "partially_lit"],
         "times": ["night", "night", "night", "late_night", "evening"],
-        "severity": (5, 9),
+        "severity": (5, 6),
     },
     "dark_lane": {
-        "incident": [None, "UNCOMFORTABLE_STARING"],
-        "concern": ["POOR_STREET_LIGHTING", "ISOLATED_OR_DESERTED_ROAD"],
+        "incident": [None],
+        "concern": ["POOR_STREET_LIGHTING"],
         "lights": ["poorly_lit_or_dark"],
         "times": ["late_night", "late_night", "late_night", "night"],
         "severity": (2, 5),
     },
     "crowd_contact": {
-        "incident": ["UNWANTED_PHYSICAL_CONTACT", "VERBAL_SEXUAL_HARASSMENT"],
-        "concern": ["UNSAFE_BUS_STOP", None],
+        "incident": ["UNWANTED_PHYSICAL_CONTACT"],
+        "concern": [None],
         "lights": ["day_light", "well_lit"],
         "times": ["afternoon", "afternoon", "morning", "evening"],
-        "severity": (4, 8),
+        "severity": (5, 6),
     },
     "staring_evening": {
-        "incident": ["UNCOMFORTABLE_STARING", "VERBAL_SEXUAL_HARASSMENT"],
-        "concern": [None, "FEELING_UNSAFE_WITHOUT_CONFIRMED_INCIDENT"],
+        "incident": ["UNCOMFORTABLE_STARING"],
+        "concern": [None],
         "lights": ["partially_lit", "well_lit"],
         "times": ["evening", "evening", "evening", "night"],
-        "severity": (2, 6),
+        "severity": (3, 4),
     },
 }
 
 # Scattered reports that must NOT form a hotspot, so suppression is visible.
-NOISE_POINTS = 24
+NOISE_POINTS = 46  # 54 clustered reports + 46 scattered reports = exactly 100.
 NOISE_BOX = (6.84, 79.84, 6.95, 79.92)
 
 METRES_PER_DEGREE = 111_320.0
@@ -119,14 +119,20 @@ def main() -> None:
 
     def add(latitude: float, longitude: float, profile: str, cluster: str | None) -> None:
         spec = PROFILES[profile]
-        age_days = rng.randint(0, 29)
+        age_days = rng.randint(1, 29)
         index = len(rows) + 1
         report_id = str(uuid.uuid5(NAMESPACE, f"report-{index}"))
         language = rng.choice(LANGUAGES)
         ai_lights = rng.choice(spec["lights"])
-        # Reporters answer the optional context questions about half the time.
-        reported_lights = ai_lights if rng.random() < 0.5 else "not_sure"
+        reported_lights = ai_lights
         reported_time = rng.choice(spec["times"])
+        hour = {"morning": 8, "afternoon": 14, "evening": 18, "night": 22, "late_night": 2}[
+            reported_time
+        ]
+        occurred_at = (
+            now.astimezone(timezone(timedelta(hours=5, minutes=30))) - timedelta(days=age_days)
+        ).replace(hour=hour, minute=rng.randrange(60), second=0, microsecond=0)
+        behaviour = DESCRIPTIONS[profile]["en"]
 
         rows.append(
             {
@@ -134,9 +140,8 @@ def main() -> None:
                 "reference": f"synthetic-{index:03d}",
                 "cluster": cluster,
                 "analysis_id": str(uuid.uuid5(NAMESPACE, f"analysis-{index}")),
-                "occurred_at": (
-                    now - timedelta(days=age_days, hours=rng.randint(0, 23))
-                ).isoformat(),
+                "occurred_at": occurred_at.isoformat(),
+                "submitted_at": (occurred_at + timedelta(minutes=10)).isoformat(),
                 "latitude": round(latitude, 6),
                 "longitude": round(longitude, 6),
                 "original_text": PREFIX + DESCRIPTIONS[profile][language],
@@ -154,6 +159,11 @@ def main() -> None:
                 "reported_time": reported_time,
                 "severity": rng.randint(*spec["severity"]),
                 "confidence": round(rng.uniform(0.45, 0.97), 2),
+                "extracted_details": {
+                    "summary": f"Synthetic interpretation: the reporter states that {behaviour}",
+                    "reported_behaviours": [] if profile == "dark_lane" else [behaviour],
+                    "reported_location": cluster,
+                },
             }
         )
 
@@ -176,6 +186,9 @@ def main() -> None:
             None,
         )
 
+    assert len(rows) == 100
+    assert len({row["id"] for row in rows}) == 100
+    assert len({row["analysis_id"] for row in rows}) == 100
     _write_seed_sql(rows)
     OUTPUT.write_text(
         json.dumps(
@@ -188,7 +201,8 @@ def main() -> None:
             },
             indent=2,
         )
-        + "\n"
+        + "\n",
+        encoding="utf-8",
     )
     print(f"wrote {len(rows)} synthetic reports to {OUTPUT}")
 
@@ -228,6 +242,7 @@ def _write_seed_sql(rows: list[dict]) -> None:
                 _sql(row["lighting_condition"]),
                 _sql(row["reported_time"]),
                 _sql(row["current_safety_status"]),
+                _sql(row["submitted_at"]),
             ]
         )
         + ")"
@@ -244,19 +259,11 @@ def _write_seed_sql(rows: list[dict]) -> None:
                 _sql(row["incident_category"]),
                 _sql(row["safety_concern_category"]),
                 _sql(row["reported_time"]),
-                "false",
+                "NULL",
                 _sql(row["severity"]),
                 _sql(row["confidence"]),
                 _sql(row["street_lights"]),
-                "'"
-                + json.dumps(
-                    {
-                        "summary": None,
-                        "reported_behaviours": [],
-                        "reported_location": None,
-                    }
-                )
-                + "'::jsonb",
+                "'" + json.dumps(row["extracted_details"]).replace("'", "''") + "'::jsonb",
             ]
         )
         + ")"
@@ -275,7 +282,11 @@ def _write_seed_sql(rows: list[dict]) -> None:
 -- one existing account instead of inventing a user. Create an account first
 -- if the project has none.
 --
--- Safe to re-run: the same rows are replaced, never duplicated.
+-- Exactly 100 synthetic reports and 100 matching synthetic analyses.
+-- Safe to re-run: stable IDs are upserted; unrelated reports are not deleted.
+-- Analyses are synthetic fixtures, not real LLM outputs. No API calls are made.
+-- Historical submission times avoid counting bulk fixtures as live spam.
+-- Apply all migrations first. Run this file in the Supabase SQL Editor.
 
 begin;
 
@@ -289,28 +300,47 @@ begin
             'No auth.users row exists. Create one account before seeding demo data.';
     end if;
 
-    delete from public.incident_ai_analyses where report_id in (
-        select id from public.reports where original_text like 'Synthetic demo:%'
-    );
-    delete from public.reports where original_text like 'Synthetic demo:%';
-
     insert into public.reports (
         id, user_id, original_text, translated_text, input_method,
         language_hint, latitude, longitude, occurred_at,
-        lighting_condition, reported_time, current_safety_status
+        lighting_condition, reported_time, current_safety_status, submitted_at
     ) values
-{report_values};
+{report_values}
+    ON CONFLICT (id) DO UPDATE SET
+        original_text = EXCLUDED.original_text,
+        translated_text = EXCLUDED.translated_text,
+        input_method = EXCLUDED.input_method,
+        language_hint = EXCLUDED.language_hint,
+        latitude = EXCLUDED.latitude,
+        longitude = EXCLUDED.longitude,
+        occurred_at = EXCLUDED.occurred_at,
+        lighting_condition = EXCLUDED.lighting_condition,
+        reported_time = EXCLUDED.reported_time,
+        current_safety_status = EXCLUDED.current_safety_status,
+        submitted_at = EXCLUDED.submitted_at;
 
     insert into public.incident_ai_analyses (
         id, report_id, analysis_status, "IncidentCategory",
         "SafetyConcernCategory", reported_time, immediate_danger_reported,
         severity, confidence, street_lights, extracted_details
     ) values
-{analysis_values};
+{analysis_values}
+    ON CONFLICT (id) DO UPDATE SET
+        report_id = EXCLUDED.report_id,
+        analysis_status = EXCLUDED.analysis_status,
+        "IncidentCategory" = EXCLUDED."IncidentCategory",
+        "SafetyConcernCategory" = EXCLUDED."SafetyConcernCategory",
+        reported_time = EXCLUDED.reported_time,
+        immediate_danger_reported = EXCLUDED.immediate_danger_reported,
+        severity = EXCLUDED.severity,
+        confidence = EXCLUDED.confidence,
+        street_lights = EXCLUDED.street_lights,
+        extracted_details = EXCLUDED.extracted_details;
 end $$;
 
 commit;
-"""
+""",
+        encoding="utf-8",
     )
 
 
