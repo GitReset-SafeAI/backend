@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
 from app.main import create_app
-from app.modules.incident_ai.classifier import ClassificationError
+from app.modules.incident_ai.classifier import ClassificationError, _extract_message_content
 from app.modules.incident_ai.router import get_incident_analysis_service
 from app.modules.incident_ai.schemas import ExtractedDetails, IncidentAnalysis
 from app.modules.incident_ai.service import IncidentAnalysisService
@@ -91,6 +91,12 @@ def test_provider_failure_returns_review_fallback(app_client: tuple[TestClient, 
     assert response.json()["severity"] == "undetermined"
     assert response.json()["confidence"] is None
     assert response.json()["review_reason"] == "analysis_unavailable"
+
+
+def test_groq_message_content_is_extracted() -> None:
+    content = '{"analysis_status":"needs_review"}'
+    response = {"choices": [{"message": {"role": "assistant", "content": content}}]}
+    assert _extract_message_content(response) == content
 
 
 @pytest.mark.parametrize("translated_text", ["", "   ", "x" * 5001])

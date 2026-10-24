@@ -18,6 +18,7 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterat
         "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
         "LLM_API_KEY",
+        "GROQ_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("APP_ENV", "development")

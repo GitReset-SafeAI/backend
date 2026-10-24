@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.core.config import get_settings
-from app.modules.incident_ai.classifier import OpenAIIncidentClassifier
+from app.modules.incident_ai.classifier import GroqIncidentClassifier
 from app.modules.incident_ai.schemas import AnalyzeIncidentRequest, IncidentAnalysis
 from app.modules.incident_ai.service import IncidentAnalysisService
 
@@ -14,8 +14,8 @@ router = APIRouter(prefix="/incident-ai", tags=["incident_ai"])
 
 def get_incident_analysis_service() -> IncidentAnalysisService:
     settings = get_settings()
-    classifier = OpenAIIncidentClassifier(
-        api_key=settings.llm_api_key.get_secret_value(),
+    classifier = GroqIncidentClassifier(
+        api_key=settings.groq_api_key.get_secret_value(),
         model=settings.llm_model,
         base_url=settings.llm_base_url,
         timeout_seconds=settings.llm_timeout_seconds,

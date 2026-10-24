@@ -1,4 +1,4 @@
-"""OpenAI Responses API client for structured incident classification."""
+"""Groq chat-completions client for structured incident classification."""
 
 import httpx
 from pydantic import ValidationError
@@ -11,7 +11,7 @@ class ClassificationError(RuntimeError):
     """Raised when the provider cannot return a valid structured analysis."""
 
 
-class OpenAIIncidentClassifier:
+class GroqIncidentClassifier:
     def __init__(self, api_key: str, model: str, base_url: str, timeout_seconds: float) -> None:
         self._api_key = api_key
         self._model = model
@@ -24,44 +24,45 @@ class OpenAIIncidentClassifier:
 
         payload = {
             "model": self._model,
-            "store": False,
-            "instructions": SYSTEM_PROMPT,
-            "input": translated_text,
-            "text": {
-                "format": {
-                    "type": "json_schema",
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": translated_text},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
                     "name": "incident_analysis",
                     "strict": True,
                     "schema": _response_schema(),
-                }
+                },
             },
+            "temperature": 0,
         }
         try:
             async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
                 response = await client.post(
-                    f"{self._base_url}/responses",
+                    f"{self._base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {self._api_key}"},
                     json=payload,
                 )
                 response.raise_for_status()
-                output_text = _extract_output_text(response.json())
+                output_text = _extract_message_content(response.json())
                 return IncidentAnalysis.model_validate_json(output_text)
         except (httpx.HTTPError, KeyError, TypeError, ValueError, ValidationError) as exc:
             raise ClassificationError("LLM analysis failed") from exc
 
 
-def _extract_output_text(response: dict) -> str:
-    if response.get("status") != "completed":
-        raise ValueError("Response was not completed")
-    for item in response.get("output", []):
-        if item.get("type") != "message":
-            continue
-        for content in item.get("content", []):
-            if content.get("type") == "refusal":
-                raise ValueError("Model refused the request")
-            if content.get("type") == "output_text":
-                return content["text"]
-    raise ValueError("Response did not contain output text")
+def _extract_message_content(response: dict) -> str:
+    choices = response.get("choices", [])
+    if not choices:
+        raise ValueError("Response did not contain a choice")
+    message = choices[0].get("message", {})
+    if message.get("refusal"):
+        raise ValueError("Model refused the request")
+    content = message.get("content")
+    if not isinstance(content, str) or not content:
+        raise ValueError("Response did not contain message content")
+    return content
 
 
 def _response_schema() -> dict:
