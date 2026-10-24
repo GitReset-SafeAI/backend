@@ -22,12 +22,19 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if development else None,
         openapi_url="/openapi.json" if development else None,
     )
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=["http://localhost:5173"],
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
-    )
+    # The web client runs on its own dev server, so the browser needs the
+    # backend to say it may be called. Development only, and only the local
+    # dev origins: a deployed frontend is served its own origin or an
+    # explicitly configured one, never a wildcard.
+    if development and settings.cors_allow_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_allow_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "Authorization"],
+        )
+
     # One registration point, so adding a feature router cannot leave it
     # mounted here and missing there. app/api/router.py holds the list.
     application.include_router(api_router, prefix="/api/v1")
