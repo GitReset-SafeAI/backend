@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_current_user
 from app.core.config import Settings, get_settings
 from app.core.security import AuthenticatedUser
+from app.modules.reporting.transcription.service import SUPPORTED_MEDIA_TYPES
 
 ENDPOINT = "/api/v1/reporting/transcriptions"
 
@@ -176,7 +177,16 @@ def test_invalid_audio_never_calls_provider(
 
 
 @pytest.mark.parametrize(
-    "media_type", [None, "application/json", "audio/mp3", "audio/x-wav", "multipart/form-data"]
+    "media_type",
+    [
+        None,
+        "application/json",
+        "audio/mp3",
+        "audio/x-wav",
+        "audio/webm",
+        "video/webm",
+        "multipart/form-data",
+    ],
 )
 def test_unsupported_media_type(
     application: FastAPI, api: API, wav_audio: bytes, media_type: str | None
@@ -284,15 +294,22 @@ async def asgi_request(application: FastAPI, headers: list[tuple[bytes, bytes]],
 
 
 @pytest.mark.parametrize("authorization", [None, b"Bearer", b"Bearer invalid", b"Basic invalid"])
+@pytest.mark.parametrize("media_type", [b"audio/wav", b"audio/mp4", b"audio/mpeg"])
 def test_authentication_happens_before_any_body_read(
-    application: FastAPI, api: API, authorization: bytes | None
+    application: FastAPI, api: API, authorization: bytes | None, media_type: bytes, monkeypatch
 ) -> None:
     del application.dependency_overrides[get_current_user]
 
     async def receive():
         raise AssertionError("Unauthenticated request body must never be consumed")
 
-    headers = [(b"content-type", b"audio/wav")]
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Unauthenticated request must never start a conversion")
+
+    monkeypatch.setattr(
+        "app.modules.reporting.transcription.conversion.subprocess.Popen", forbidden
+    )
+    headers = [(b"content-type", media_type)]
     if authorization is not None:
         headers.append((b"authorization", authorization))
     messages = asyncio.run(asgi_request(application, headers, receive))
@@ -330,12 +347,14 @@ def test_bad_or_oversized_length_is_rejected_without_reading(
 
 
 @pytest.mark.parametrize("declared_length", [None, b"1"])
+@pytest.mark.parametrize("media_type", [b"audio/wav", b"audio/mp4", b"audio/mpeg"])
 def test_chunked_upload_enforces_actual_bytes(
     application: FastAPI,
     api: API,
     settings: Settings,
     wav_audio: bytes,
     declared_length: bytes | None,
+    media_type: bytes,
 ) -> None:
     application.dependency_overrides[get_settings] = lambda: settings.model_copy(
         update={"transcription_max_bytes": len(wav_audio)}
@@ -351,7 +370,7 @@ def test_chunked_upload_enforces_actual_bytes(
             return {"type": "http.request", "body": b"x", "more_body": True}
         raise AssertionError("Must not consume beyond the byte limit")
 
-    headers = [(b"content-type", b"audio/wav")]
+    headers = [(b"content-type", media_type)]
     if declared_length is not None:
         headers.append((b"content-length", declared_length))
     messages = asyncio.run(asgi_request(application, headers, receive))
@@ -391,5 +410,66 @@ def test_disconnect_is_safe(application: FastAPI, api: API) -> None:
 
 def test_openapi_describes_binary_audio_and_authentication(application: FastAPI) -> None:
     operation = application.openapi()["paths"][ENDPOINT]["post"]
-    assert operation["requestBody"]["content"]["audio/wav"]["schema"]["format"] == "binary"
+    assert set(operation["requestBody"]["content"]) == set(SUPPORTED_MEDIA_TYPES)
+    for entry in operation["requestBody"]["content"].values():
+        assert entry["schema"]["format"] == "binary"
     assert operation["security"]
+
+
+@pytest.mark.parametrize(
+    "extension,media_type",
+    [("m4a", "audio/mp4"), ("m4a", "audio/x-m4a"), ("mp4", "video/mp4"), ("mp3", "audio/mpeg")],
+)
+def test_real_compressed_audio_reaches_existing_provider_only_as_wav(
+    application, api, media_factory, extension, media_type
+):
+    audio = media_factory(extension)
+    with TestClient(application) as client:
+        response = client.post(ENDPOINT, content=audio, headers={"Content-Type": media_type})
+    assert response.status_code == 200
+    assert response.json() == {
+        "transcript": api.body["text"],
+        "requested_language_hint": "unknown",
+        "review_required": True,
+    }
+    assert len(api.requests) == 1
+    body = api.requests[0].content
+    assert b'filename="report.wav"' in body and b"RIFF" in body and b"WAVE" in body
+    assert audio not in body
+
+
+def test_missing_ffmpeg_returns_sanitized_503_and_wav_still_works(
+    application, api, wav_audio, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.modules.reporting.transcription.conversion.shutil.which", lambda _: None
+    )
+    with TestClient(application) as client:
+        response = client.post(
+            ENDPOINT, content=b"synthetic", headers={"Content-Type": "audio/mp4"}
+        )
+        assert response.status_code == 503
+        assert response.json() == {"detail": "Audio transcription is unavailable."}
+        assert not api.requests
+        response = client.post(ENDPOINT, content=wav_audio, headers={"Content-Type": "audio/wav"})
+        assert response.status_code == 200
+
+
+@pytest.mark.parametrize("kind", ["corrupt", "mismatch", "no_audio", "long"])
+def test_real_invalid_media_never_reaches_provider(application, api, media_factory, kind, caplog):
+    audio = media_factory(
+        "mp4", video_only=kind == "no_audio", duration=61 if kind == "long" else 0.25
+    )
+    if kind == "corrupt":
+        audio = audio[:30]
+    media_type = "audio/mpeg" if kind == "mismatch" else "video/mp4"
+    with caplog.at_level("DEBUG"), TestClient(application) as client:
+        response = client.post(ENDPOINT, content=audio, headers={"Content-Type": media_type})
+    assert response.status_code == (413 if kind == "long" else 422)
+    assert not api.requests
+    assert (
+        response.json() == {"detail": "Audio exceeds the permitted size or duration."}
+        if kind == "long"
+        else response.json() == {"detail": "Audio is invalid or contains no usable speech."}
+    )
+    assert repr(audio) not in response.text + caplog.text

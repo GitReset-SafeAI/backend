@@ -50,6 +50,51 @@ the backend and must never appear in the mobile client or logs.
 
 ## Run
 
+### Audio conversion runtime
+
+The draft transcription endpoint accepts raw WAV, M4A/MP4 AAC, and MP3 uploads.
+Compressed formats require **both `ffmpeg` and `ffprobe` on the backend PATH**;
+WAV requests continue working without them. No Python audio package is needed.
+Use a maintained build with MOV/MP4 and MP3 demuxers, AAC/MP3 decoders, and the
+PCM signed 16-bit encoder/resampler. Format support is deliberately restricted;
+WebM and other codecs/containers are not enabled.
+
+Windows: obtain a build from the Windows links on the
+[official FFmpeg download page](https://ffmpeg.org/download.html), verify the
+distributor's checksum, extract outside this repository, and add its `bin`
+directory (containing both executables) to your user/service PATH. Restart the
+terminal/backend after changing PATH. Verify with:
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+Ubuntu/Debian deployment and CI:
+
+```bash
+sudo apt-get update
+sudo apt-get install --no-install-recommends -y ffmpeg
+ffmpeg -version
+ffprobe -version
+```
+
+There is no container/deployment manifest in this repository. Install the runtime
+on the actual backend host; Python requirements alone do not provide it. CI
+installs FFmpeg and requires generated-media integration tests rather than skips.
+Local conversion tests skip when tools are absent; set `SAFEROUTE_REQUIRE_FFMPEG=1`
+in the test environment to require them. Never commit binaries or recordings.
+
+Conversion uses server-controlled arguments with no shell, normalizes to mono
+16 kHz PCM WAV, and shares the endpoint's two process-wide slots. Its independent
+`TRANSCRIPTION_CONVERSION_TIMEOUT_SECONDS` defaults to 15 seconds (maximum 30).
+The backend service account needs private writable temporary storage. Input
+files are removed after decoding or failure; output is bounded in memory. See
+[API contracts](docs/api-contracts.md#draft-voice-transcription-post-apiv1reportingtranscriptions)
+and [privacy guidance](docs/privacy-and-safety.md#draft-voice-transcription).
+
+### Start the backend
+
 ```bash
 uvicorn app.main:app --reload
 ```

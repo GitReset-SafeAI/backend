@@ -34,7 +34,10 @@ class AudioTooLarge(TranscriptionError):
 
 class UnsupportedAudio(TranscriptionError):
     status_code = 415
-    detail = "Only audio/wav with supported 16-bit PCM audio is accepted."
+    detail = "Unsupported audio media type, container, or encoding."
+
+
+SUPPORTED_MEDIA_TYPES = ("audio/wav", "audio/mp4", "audio/x-m4a", "video/mp4", "audio/mpeg")
 
 
 def validate_transcript(text: object) -> str:
@@ -116,21 +119,37 @@ class Transcriber(Protocol):
     async def transcribe(self, audio: bytes, language_hint: LanguageHint) -> str: ...
 
 
+class AudioConverter(Protocol):
+    async def convert(
+        self, audio: bytes | bytearray, media_type: str, max_duration: float
+    ) -> bytes: ...
+
+
 class TranscriptionService:
-    def __init__(self, provider: Transcriber, max_bytes: int, max_duration: float) -> None:
+    def __init__(
+        self,
+        provider: Transcriber,
+        max_bytes: int,
+        max_duration: float,
+        converter: AudioConverter | None = None,
+    ) -> None:
         self._provider = provider
         self.max_bytes = max_bytes
         self.max_duration = max_duration
+        self._converter = converter
 
     async def transcribe(
         self,
         chunks: AsyncIterable[bytes],
         language_hint: LanguageHint,
         declared_length: int | None = None,
+        media_type: str = "audio/wav",
     ) -> TranscriptionResponse:
         if not _TRANSCRIPTION_SLOTS.acquire(blocking=False):
             raise TranscriptionError
         try:
+            if media_type not in SUPPORTED_MEDIA_TYPES:
+                raise UnsupportedAudio
             if declared_length is not None and declared_length > self.max_bytes:
                 raise AudioTooLarge
             buffer = bytearray()
@@ -144,7 +163,12 @@ class TranscriptionService:
                 raise InvalidAudio from None
             if declared_length is not None and len(buffer) != declared_length:
                 raise InvalidAudio
-            audio = validate_wav(bytes(buffer), self.max_bytes, self.max_duration)
+            if media_type == "audio/wav":
+                audio = validate_wav(bytes(buffer), self.max_bytes, self.max_duration)
+            else:
+                if self._converter is None:
+                    raise TranscriptionError
+                audio = await self._converter.convert(buffer, media_type, self.max_duration)
             buffer.clear()
             transcript = validate_transcript(await self._provider.transcribe(audio, language_hint))
             return TranscriptionResponse(
