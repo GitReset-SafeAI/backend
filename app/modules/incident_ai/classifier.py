@@ -4,7 +4,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.modules.incident_ai.prompts import SYSTEM_PROMPT
-from app.modules.incident_ai.schemas import IncidentAnalysis
+from app.modules.incident_ai.schemas import AnalysisOutput
 
 
 class ClassificationError(RuntimeError):
@@ -18,7 +18,7 @@ class GroqIncidentClassifier:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
 
-    async def classify(self, translated_text: str) -> IncidentAnalysis:
+    async def classify(self, translated_text: str) -> AnalysisOutput:
         if not self._api_key:
             raise ClassificationError("LLM API key is not configured")
 
@@ -47,7 +47,7 @@ class GroqIncidentClassifier:
                 )
                 response.raise_for_status()
                 output_text = _extract_message_content(response.json())
-                return IncidentAnalysis.model_validate_json(output_text)
+                return AnalysisOutput.model_validate_json(output_text)
         except (httpx.HTTPError, KeyError, TypeError, ValueError, ValidationError) as exc:
             raise ClassificationError("LLM analysis failed") from exc
 
@@ -66,54 +66,4 @@ def _extract_message_content(response: dict) -> str:
 
 
 def _response_schema() -> dict:
-    nullable_string = {"type": ["string", "null"]}
-    return {
-        "type": "object",
-        "properties": {
-            "analysis_status": {"type": "string", "enum": ["completed", "needs_review"]},
-            "category": {
-                "type": "string",
-                "enum": [
-                    "unwanted_touching",
-                    "sexual_remarks",
-                    "stalking",
-                    "threatening_behaviour",
-                    "other",
-                    "unclear",
-                ],
-            },
-            "severity": {
-                "type": "string",
-                "enum": ["low", "moderate", "high", "critical", "undetermined"],
-            },
-            "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
-            "extracted_details": {
-                "type": "object",
-                "properties": {
-                    "summary": nullable_string,
-                    "reported_behaviours": {"type": "array", "items": {"type": "string"}},
-                    "reported_location": nullable_string,
-                    "reported_time": nullable_string,
-                    "immediate_danger_reported": {"type": ["boolean", "null"]},
-                },
-                "required": [
-                    "summary",
-                    "reported_behaviours",
-                    "reported_location",
-                    "reported_time",
-                    "immediate_danger_reported",
-                ],
-                "additionalProperties": False,
-            },
-            "review_reason": nullable_string,
-        },
-        "required": [
-            "analysis_status",
-            "category",
-            "severity",
-            "confidence",
-            "extracted_details",
-            "review_reason",
-        ],
-        "additionalProperties": False,
-    }
+    return AnalysisOutput.model_json_schema()

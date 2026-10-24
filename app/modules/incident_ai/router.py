@@ -30,4 +30,4 @@ async def analyze_incident(
 ) -> IncidentAnalysis:
     """Convert translated English report text into a provisional structured record."""
 
-    return await service.analyze(request.translated_text)
+    return await service.analyze(request.translated_text, request.report_id)
