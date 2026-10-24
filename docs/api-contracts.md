@@ -157,6 +157,9 @@ Reporting, classification, severity, anomaly detection, hotspots, and route
 
 ## Safety map (Module 4) — provisional
 
+How the module works, and why each threshold is what it is, is documented in
+[safety-map.md](safety-map.md). This section covers the contract only.
+
 Agreed shapes only; neither endpoint is implemented. The mobile mirror lives in
 `src/services/contracts/safetyMap.ts` and the Pydantic models in
 `app/modules/safety_map/schemas.py`. Change both sides together.
