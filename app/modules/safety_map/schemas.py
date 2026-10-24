@@ -22,6 +22,34 @@ EvidenceLevel = Literal["insufficient", "limited", "moderate"]
 MIN_REPORTS_PER_HOTSPOT = 3
 MIN_HOTSPOT_RADIUS_M = 150.0
 
+# Vocabularies are owned by the incident-AI module
+# (`incident_ai_analyses.IncidentCategory` / `SafetyConcernCategory`). They are
+# carried as separate fields because OTHER and UNCLEAR appear in both. Values
+# are passed through as plain strings so a vocabulary change there cannot
+# break the map before this module is updated.
+INCIDENT_CATEGORIES = (
+    "UNWANTED_FOLLOWING",
+    "VERBAL_SEXUAL_HARASSMENT",
+    "UNWANTED_PHYSICAL_CONTACT",
+    "THREATENING_BEHAVIOUR",
+    "UNCOMFORTABLE_STARING",
+    "OTHER",
+    "UNCLEAR",
+)
+SAFETY_CONCERN_CATEGORIES = (
+    "POOR_STREET_LIGHTING",
+    "ISOLATED_OR_DESERTED_ROAD",
+    "UNSAFE_BUS_STOP",
+    "FEELING_UNSAFE_WITHOUT_CONFIRMED_INCIDENT",
+    "PREVIOUS_SAFETY_CONCERNS_AT_LOCATION",
+    "OTHER",
+    "UNCLEAR",
+)
+
+# `incident_ai_analyses.severity` is a smallint 0-10, so hotspot weighting uses
+# severity / MAX_SEVERITY rather than a low/medium/high lookup.
+MAX_SEVERITY = 10
+
 
 class Coordinate(BaseModel):
     """Explicit latitude/longitude. Never a GeoJSON ``[lon, lat]`` pair."""
@@ -38,7 +66,8 @@ class Hotspot(BaseModel):
     radius_m: Annotated[float, Field(ge=MIN_HOTSPOT_RADIUS_M)]
     report_count: Annotated[int, Field(ge=MIN_REPORTS_PER_HOTSPOT)]
     intensity: Annotated[float, Field(ge=0, le=1)]
-    top_categories: Annotated[list[str], Field(max_length=3)]
+    top_incident_categories: Annotated[list[str], Field(max_length=3)]
+    top_safety_concerns: Annotated[list[str], Field(max_length=3)]
     peak_time_bucket: TimeBucket | None
     most_recent_report_days_ago: Annotated[int, Field(ge=0)]
     evidence_level: EvidenceLevel
@@ -70,9 +99,10 @@ class Route(BaseModel):
     # Relative proximity to reported-incident areas. Not a safety score.
     exposure_score: Annotated[float, Field(ge=0, le=100)]
     hotspots_passed: Annotated[int, Field(ge=0)]
-    # What kinds of issue were reported along this path, so every route can be
-    # explained rather than only ranked.
-    issue_categories: Annotated[list[str], Field(max_length=4)]
+    # What was reported along this path, so every route can be explained
+    # rather than only ranked.
+    incident_categories: Annotated[list[str], Field(max_length=3)]
+    safety_concerns: Annotated[list[str], Field(max_length=3)]
     # Relative to the fastest route; 0 for the fastest route itself.
     extra_duration_s: Annotated[int, Field(ge=0)]
 

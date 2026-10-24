@@ -74,7 +74,8 @@ Returns `HotspotsResponse`. Synthetic example:
       "radius_m": 180,
       "report_count": 9,
       "intensity": 0.82,
-      "top_categories": ["verbal_harassment", "stalking"],
+      "top_incident_categories": ["UNWANTED_FOLLOWING", "VERBAL_SEXUAL_HARASSMENT"],
+      "top_safety_concerns": ["POOR_STREET_LIGHTING"],
       "peak_time_bucket": "evening",
       "most_recent_report_days_ago": 2,
       "evidence_level": "moderate"
@@ -92,7 +93,8 @@ Accepts `RouteComparisonRequest` and returns `RouteComparisonResponse`: a list
 of candidate walking routes plus `recommended_route_id`.
 
 Every route carries its own `exposure_score`, `hotspots_passed`,
-`issue_categories`, and `extra_duration_s` relative to the fastest route, so the
+`incident_categories`, `safety_concerns`, and `extra_duration_s` relative to the
+fastest route, so the
 app can explain each path rather than only rank them. `exposure_score` is a
 relative indicator of proximity to reported-incident areas and must never be
 presented as a safety guarantee.
@@ -102,9 +104,25 @@ within an acceptable detour. The agreed rule, applied server-side and mirrored
 in the mobile mock: recommend only when exposure drops by at least 25% and the
 detour adds no more than `max(300 s, 30% of the fastest route)`.
 
+### Incident-AI alignment
+
+Categories follow `incident_ai_analyses` on the `incident_understanding`
+branch. `IncidentCategory` and `SafetyConcernCategory` are carried as separate
+fields throughout, because `OTHER` and `UNCLEAR` appear in both enums and would
+be ambiguous in one list. Unrecognised values are passed through and rendered
+with a neutral label rather than dropped, so adding a category there cannot
+break the map.
+
+`severity` is a smallint 0-10, so hotspot weighting uses `severity / 10`.
+
 ### Open items
 
-Category vocabulary and severity labels come from the incident-AI module;
-hotspot eligibility (`integrity_status`, duplicate flags) comes from the
-integrity module. Until both exist, Module 4 reads a `map_eligible_incidents`
-view over synthetic seed data and weights every report equally.
+1. **Location.** `incident_ai_analyses` has no coordinates; it is keyed by
+   `report_id`. Hotspots need a reports table with a `geography(Point, 4326)`
+   column, which does not exist on any branch yet. Until it does, Module 4
+   reads a `map_eligible_incidents` view over synthetic seed data.
+2. **Eligibility.** Whether `analysis_status = 'needs_review'` rows, and rows
+   below some `confidence` threshold, should be excluded from hotspots.
+   Assumed excluded; confirm with the incident-AI and integrity owners.
+3. **Integrity.** Duplicate and anomaly flags come from the integrity module
+   and are not yet available. Every seeded report currently counts once.
