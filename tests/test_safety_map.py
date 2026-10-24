@@ -447,3 +447,25 @@ async def test_areas_are_unnamed_when_no_namer_is_configured():
     response = await service.hotspots((6.80, 79.80), (6.96, 79.95))
     assert response.hotspots
     assert all(hotspot.area_name is None for hotspot in response.hotspots)
+
+
+def test_browser_origin_is_allowed_in_development(client):
+    """The web client is a separate origin, so the browser needs permission."""
+    response = client.get(
+        f"/api/v1/safety-map/hotspots?bbox={COLOMBO_BBOX}",
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_an_unknown_origin_is_not_granted_access():
+    """Only the configured dev origins, never a wildcard."""
+    application = create_app()
+    response = TestClient(application).get(
+        "/api/v1/health", headers={"Origin": "https://not-ours.example"}
+    )
+    assert response.headers.get("access-control-allow-origin") not in {
+        "*",
+        "https://not-ours.example",
+    }

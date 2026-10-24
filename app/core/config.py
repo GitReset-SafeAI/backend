@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: Literal["development", "test", "staging", "production"] = "development"
+    # Browser origins allowed to call this API, applied in development only.
+    # The Vite dev server's defaults; override with CORS_ALLOW_ORIGINS.
+    cors_allow_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
     app_version: str = "0.1.0"
     supabase_url: str = ""
     supabase_publishable_key: SecretStr = SecretStr("")
