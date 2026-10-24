@@ -204,25 +204,35 @@ def test_no_recommendation_for_a_negligible_exposure_difference():
 
 @pytest.mark.anyio
 async def test_place_suggestions_have_unique_ids(monkeypatch):
-    """Photon can repeat an OSM id, which breaks list rendering in the app."""
+    """Nominatim can repeat an OSM id, which breaks list rendering in the app."""
     from app.modules.safety_map import places as places_module
 
-    repeated = {
-        "features": [
-            {
-                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
-                "geometry": {"coordinates": [79.85, 6.89]},
-            },
-            {
-                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
-                "geometry": {"coordinates": [79.86, 6.90]},
-            },
-            {
-                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
-                "geometry": {"coordinates": [79.85, 6.89]},
-            },
-        ]
-    }
+    repeated = [
+        {
+            "osm_type": "way",
+            "osm_id": 27712654,
+            "name": "Galle Road",
+            "lat": "6.89",
+            "lon": "79.85",
+            "address": {"suburb": "Bambalapitiya", "city": "Colombo"},
+        },
+        {
+            "osm_type": "way",
+            "osm_id": 27712654,
+            "name": "Galle Road",
+            "lat": "6.90",
+            "lon": "79.86",
+            "address": {"suburb": "Kollupitiya", "city": "Colombo"},
+        },
+        {
+            "osm_type": "way",
+            "osm_id": 27712654,
+            "name": "Galle Road",
+            "lat": "6.89",
+            "lon": "79.85",
+            "address": {"suburb": "Bambalapitiya", "city": "Colombo"},
+        },
+    ]
 
     class FakeResponse:
         status_code = 200
@@ -230,7 +240,7 @@ async def test_place_suggestions_have_unique_ids(monkeypatch):
         def raise_for_status(self) -> None:
             return None
 
-        def json(self) -> dict:
+        def json(self) -> list:
             return repeated
 
     class FakeClient:
@@ -247,6 +257,8 @@ async def test_place_suggestions_have_unique_ids(monkeypatch):
             return FakeResponse()
 
     monkeypatch.setattr(places_module.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(places_module, "_throttle_lock", places_module.asyncio.Lock())
+    monkeypatch.setattr(places_module, "MIN_REQUEST_INTERVAL_SECONDS", 0.0)
     results = await places_module.search_places("galle road", 6)
 
     identifiers = [place["id"] for place in results]
@@ -376,10 +388,9 @@ def test_area_label_never_uses_a_street_or_building():
 
     label = _area_label(
         {
-            "name": "14 Galle Road",
-            "housenumber": "14",
-            "street": "Galle Road",
-            "district": "Bambalapitiya",
+            "house_number": "14",
+            "road": "Galle Road",
+            "suburb": "Bambalapitiya",
             "city": "Colombo",
             "state": "Western Province",
         }
@@ -392,7 +403,7 @@ def test_area_label_never_uses_a_street_or_building():
 def test_area_label_is_none_when_nothing_coarse_is_available():
     from app.modules.safety_map.places import _area_label
 
-    assert _area_label({"name": "Some Shop", "street": "Marine Drive"}) is None
+    assert _area_label({"road": "Marine Drive"}) is None
 
 
 @pytest.mark.anyio
