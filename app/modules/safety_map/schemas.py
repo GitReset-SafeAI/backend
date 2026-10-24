@@ -144,3 +144,13 @@ class RouteComparisonResponse(BaseModel):
     # False when the routing service could not be reached and the geometry is
     # a straight-line approximation rather than real walking directions.
     uses_street_network: bool
+
+
+class PlaceSuggestion(BaseModel):
+    """A public place name for the journey planner. Carries no report data."""
+
+    id: str
+    name: str
+    # Area line shown under the name, as in a familiar map app.
+    context: str
+    coordinate: Coordinate

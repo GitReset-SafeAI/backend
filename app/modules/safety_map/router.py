@@ -6,9 +6,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.config import get_settings
+from app.modules.safety_map.places import PlaceLookupError, search_places
 from app.modules.safety_map.repository import MapDataError
 from app.modules.safety_map.schemas import (
     HotspotsResponse,
+    PlaceSuggestion,
     RouteComparisonRequest,
     RouteComparisonResponse,
     TimePeriodFilter,
@@ -59,6 +61,19 @@ async def read_hotspots(
     except MapDataError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Reported areas are unavailable"
+        ) from exc
+
+
+@router.get("/places", response_model=list[PlaceSuggestion])
+async def read_places(
+    q: Annotated[str, Query(min_length=2, max_length=120)],
+    limit: Annotated[int, Query(ge=1, le=8)] = 6,
+) -> list[PlaceSuggestion]:
+    try:
+        return [PlaceSuggestion.model_validate(place) for place in await search_places(q, limit)]
+    except PlaceLookupError as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Place search is unavailable"
         ) from exc
 
 
