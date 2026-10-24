@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.config import get_settings
-from app.modules.safety_map.places import PlaceLookupError, search_places
+from app.modules.safety_map.places import PlaceLookupError, area_names, search_places
 from app.modules.safety_map.repository import MapDataError
 from app.modules.safety_map.schemas import (
     HotspotsResponse,
@@ -28,6 +28,7 @@ def get_service() -> SafetyMapService:
     return SafetyMapService(
         settings.supabase_url,
         settings.supabase_service_role_key.get_secret_value(),
+        area_namer=area_names,
     )
 
 

@@ -1,5 +1,6 @@
 """Orchestrates eligible-incident reads, clustering and route comparison."""
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from app.modules.safety_map.hotspots import Cluster, find_hotspots, overall_evidence
@@ -25,6 +26,9 @@ from app.modules.safety_map.schemas import (
 
 DEFAULT_WINDOW_DAYS = 30
 
+# Coarse area labels for a batch of hotspot centres, in the order given.
+AreaNamer = Callable[[list[tuple[float, float]]], Awaitable[list[str | None]]]
+
 
 def _path_length(geometry: list[tuple[float, float]]) -> float:
     """Rough ordering only, so a cheap sum of coordinate steps is enough."""
@@ -36,8 +40,17 @@ def _path_length(geometry: list[tuple[float, float]]) -> float:
 
 
 class SafetyMapService:
-    def __init__(self, url: str = "", service_key: str = "") -> None:
+    def __init__(
+        self,
+        url: str = "",
+        service_key: str = "",
+        area_namer: AreaNamer | None = None,
+    ) -> None:
         self._repository = build_repository(url, service_key)
+        # Naming areas needs an outside geocoder, so it is supplied rather than
+        # assumed, exactly like the database. Without one the map still works;
+        # areas simply go unnamed.
+        self._area_namer = area_namer
 
     @property
     def uses_synthetic_data(self) -> bool:
@@ -61,6 +74,21 @@ class SafetyMapService:
             ]
         return find_hotspots(incidents)
 
+    async def _area_names(self, clusters: list[Cluster]) -> list[str | None]:
+        """Coarse labels for each cluster centre, or None where unavailable."""
+        if not clusters or self._area_namer is None:
+            return [None] * len(clusters)
+        try:
+            names = await self._area_namer(
+                [(cluster.latitude, cluster.longitude) for cluster in clusters]
+            )
+        except Exception:
+            # Naming is decoration. It must never take the map down with it.
+            return [None] * len(clusters)
+        if len(names) != len(clusters):
+            return [None] * len(clusters)
+        return names
+
     async def hotspots(
         self,
         south_west: tuple[float, float],
@@ -71,6 +99,7 @@ class SafetyMapService:
         clusters, suppressed = await self._clusters(
             south_west, north_east, time_period, window_days
         )
+        area_names = await self._area_names(clusters)
         return HotspotsResponse(
             generated_at=datetime.now(UTC),
             window_days=window_days,
@@ -81,6 +110,7 @@ class SafetyMapService:
                 Hotspot(
                     id=cluster.id,
                     center=Coordinate(latitude=cluster.latitude, longitude=cluster.longitude),
+                    area_name=area_names[index],
                     radius_m=cluster.radius_m,
                     report_count=cluster.report_count,
                     intensity=cluster.intensity,
@@ -91,7 +121,7 @@ class SafetyMapService:
                     mean_confidence=cluster.mean_confidence,
                     evidence_level=cluster.evidence_level,
                 )
-                for cluster in clusters
+                for index, cluster in enumerate(clusters)
             ],
         )
 

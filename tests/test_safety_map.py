@@ -53,6 +53,7 @@ def test_hotspots_endpoint_returns_aggregated_areas(client):
         # No report content may leave the backend.
         assert set(hotspot) == {
             "id",
+            "area_name",
             "center",
             "radius_m",
             "report_count",
@@ -362,3 +363,109 @@ def test_avoidance_steps_off_the_road_rather_than_along_it():
     assert east and west
     assert east[0][1] > 79.8565 > west[0][1]
     assert abs(east[0][0] - 6.8905) < abs(east[0][1] - 79.8565)
+
+
+# ---------------------------------------------------------------------------
+# Area naming. A label makes an area readable; it must never make it locatable.
+# ---------------------------------------------------------------------------
+
+
+def test_area_label_never_uses_a_street_or_building():
+    """The 150 m floor exists so an area cannot point at a reported place."""
+    from app.modules.safety_map.places import _area_label
+
+    label = _area_label(
+        {
+            "name": "14 Galle Road",
+            "housenumber": "14",
+            "street": "Galle Road",
+            "district": "Bambalapitiya",
+            "city": "Colombo",
+            "state": "Western Province",
+        }
+    )
+    assert label == "Bambalapitiya, Colombo"
+    for leak in ("14", "Galle Road"):
+        assert leak not in label
+
+
+def test_area_label_is_none_when_nothing_coarse_is_available():
+    from app.modules.safety_map.places import _area_label
+
+    assert _area_label({"name": "Some Shop", "street": "Marine Drive"}) is None
+
+
+@pytest.mark.anyio
+async def test_hotspots_are_named_without_the_namer_being_able_to_break_the_map():
+    """A geocoder failure costs the labels, never the areas."""
+
+    async def failing_namer(points):
+        raise RuntimeError("geocoder down")
+
+    service = SafetyMapService("", "", area_namer=failing_namer)
+    response = await service.hotspots((6.80, 79.80), (6.96, 79.95))
+
+    assert response.hotspots, "areas must still be returned"
+    assert all(hotspot.area_name is None for hotspot in response.hotspots)
+
+
+@pytest.mark.anyio
+async def test_area_names_are_applied_in_cluster_order():
+    captured: list[tuple[float, float]] = []
+
+    async def namer(points):
+        captured.extend(points)
+        return [f"Area {index}" for index, _ in enumerate(points)]
+
+    service = SafetyMapService("", "", area_namer=namer)
+    response = await service.hotspots((6.80, 79.80), (6.96, 79.95))
+
+    assert [hotspot.area_name for hotspot in response.hotspots] == [
+        f"Area {index}" for index, _ in enumerate(response.hotspots)
+    ]
+    # The namer is asked about the published centres, nothing else.
+    assert captured == [
+        (hotspot.center.latitude, hotspot.center.longitude) for hotspot in response.hotspots
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_mismatched_namer_result_is_discarded():
+    """A short or long list must not shift labels onto the wrong areas."""
+
+    async def wrong_length(points):
+        return ["Only one"]
+
+    service = SafetyMapService("", "", area_namer=wrong_length)
+    response = await service.hotspots((6.80, 79.80), (6.96, 79.95))
+    assert all(hotspot.area_name is None for hotspot in response.hotspots)
+
+
+@pytest.mark.anyio
+async def test_areas_are_unnamed_when_no_namer_is_configured():
+    service = SafetyMapService("", "")
+    response = await service.hotspots((6.80, 79.80), (6.96, 79.95))
+    assert response.hotspots
+    assert all(hotspot.area_name is None for hotspot in response.hotspots)
+
+
+def test_browser_origin_is_allowed_in_development(client):
+    """The web client is a separate origin, so the browser needs permission."""
+    response = client.get(
+        f"/api/v1/safety-map/hotspots?bbox={COLOMBO_BBOX}",
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_an_unknown_origin_is_not_granted_access():
+    """Only the configured dev origins, never a wildcard."""
+    application = create_app()
+    response = TestClient(application).get(
+        "/api/v1/health", headers={"Origin": "https://not-ours.example"}
+    )
+    assert response.headers.get("access-control-allow-origin") not in {
+        "*",
+        "https://not-ours.example",
+    }

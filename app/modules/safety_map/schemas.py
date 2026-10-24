@@ -82,6 +82,11 @@ class Hotspot(BaseModel):
 
     id: str
     center: Coordinate
+    # A district- or city-level label for the centre, so an area can be named
+    # rather than read as bare coordinates. Never finer than the aggregation
+    # floor, and null whenever the geocoder could not be reached: naming is a
+    # convenience, never a precondition for showing the area.
+    area_name: str | None = None
     radius_m: Annotated[float, Field(ge=MIN_HOTSPOT_RADIUS_M)]
     report_count: Annotated[int, Field(ge=MIN_REPORTS_PER_HOTSPOT)]
     intensity: Annotated[float, Field(ge=0, le=1)]
