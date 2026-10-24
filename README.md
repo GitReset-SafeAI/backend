@@ -1,0 +1,113 @@
+# SafeRoute AI Backend
+
+FastAPI foundation for SafeRoute AI, a planned harassment reporting, hotspot
+detection, and safety-aware route recommendation application for Sri Lanka.
+Only a health endpoint is implemented. See the original [project overview](README)
+for the wider product context.
+
+## Stack and prerequisites
+
+- Python 3.12+ (`.python-version` selects 3.12 for CI).
+- FastAPI, Uvicorn, Pydantic, and pydantic-settings.
+- pytest and HTTPX for tests; Ruff for linting and formatting.
+- Planned Supabase/PostgreSQL integration; no database or Supabase SDK is needed yet.
+- GitHub Actions for checks on pushes and pull requests.
+
+Install Python with pip and venv support, then run commands from the repository root.
+Dependencies are declared only in `requirements.txt`; `pyproject.toml` configures tools.
+
+## Local setup
+
+Windows PowerShell:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Linux/macOS:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+Edit `.env` locally as needed. Environment variables take precedence over `.env`.
+`APP_ENV` defaults to `development`; `APP_VERSION` defaults to `0.1.0`. Supported
+environments are `development`, `test`, `staging`, and `production`. Supabase and
+LLM settings are optional and may remain blank. The application also runs without
+an `.env` file. Restart the process after changing settings.
+
+Never commit real credentials. Supabase service-role and LLM keys belong only on
+the backend and must never appear in the mobile client or logs.
+
+## Run
+
+```bash
+uvicorn app.main:app --reload
+```
+
+- Health: http://127.0.0.1:8000/api/v1/health
+- Swagger UI: http://127.0.0.1:8000/docs
+- OpenAPI: http://127.0.0.1:8000/openapi.json
+
+Documentation endpoints are enabled only with `APP_ENV=development`. The health
+endpoint reports process health without contacting external services:
+
+```json
+{"status": "ok", "service": "saferoute-ai-backend", "version": "0.1.0"}
+```
+
+## Checks
+
+```bash
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+```
+
+Apply formatting with `python -m ruff format .`. Tests use an isolated environment
+without credentials or external network requests. CI runs the same checks.
+
+## Project organisation and planned work
+
+`app/main.py` creates the single application using `create_app()` and mounts
+`app/api/router.py` under `/api/v1`. The central router registers the health
+endpoint and the four feature routers. Feature routers are currently empty;
+no placeholder endpoints are exposed and feature URL paths remain undecided.
+
+| Module | Owner | Responsibilities |
+|---|---|---|
+| `app/modules/reporting` | Person 1 | Reporting, transcription, English translation, persistence, authentication integration, ownership, and privacy |
+| `app/modules/incident_ai` | Person 2 | Classification, provisional severity, confidence, extracted details, and AI-provider failure handling |
+| `app/modules/integrity` | Person 3 | Duplicate detection, suspicious patterns, anomaly flags, and moderation support |
+| `app/modules/safety_map` | Person 4 | Geospatial queries, hotspots, aggregated maps, and walking-route comparisons |
+
+Within each feature, `router.py` handles HTTP concerns, `schemas.py` holds
+module-local data models once agreed, `service.py` holds business logic, and
+`repository.py` handles persistence where needed. Other files mark focused
+feature responsibilities and contain only docstrings for now. Do not import
+another feature's internal implementation; agree on explicit interfaces before
+connecting modules. Shared report models, database schema, and inter-module
+contracts remain open for team agreement.
+
+`app/core` retains shared settings and security utilities and is the location for
+future application-wide error handling. `app/api/dependencies.py` remains the
+shared HTTP dependency location. The original empty `app/schemas`, `app/services`,
+`app/repositories`, and `app/utils` packages are preserved; feature work belongs
+in `app/modules`, and genuinely shared code should be coordinated with the team.
+Supabase migrations belong in `supabase/migrations`; there are no schema
+migrations yet and `seed.sql` inserts nothing.
+
+Reporting, language classification, severity assessment, anomaly detection,
+hotspot analysis, and route comparison are planned and unimplemented. No database
+connection or authentication is established at startup.
+
+For parallel development, agree on contracts in [API contracts](docs/api-contracts.md),
+keep feature changes focused in their layers, and run checks before opening a PR.
+Review [privacy and safety](docs/privacy-and-safety.md) before introducing sensitive
+data and [sample-data guidance](sample-data/README.md) before adding demo fixtures.
