@@ -17,6 +17,35 @@ class ReportRepository:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
 
+    async def list_owned(self, reporter_id: UUID, limit: int, offset: int) -> list[ReportResponse]:
+        """Return a page of reports belonging to the verified user."""
+        if not isinstance(reporter_id, UUID):
+            raise ReportPersistenceError
+        fields = ("id", *ReportSubmission.model_fields, "submitted_at")
+        try:
+            response = await self.client.get(
+                "reports",
+                params={
+                    "select": ",".join((*fields, "user_id")),
+                    "user_id": f"eq.{reporter_id}",
+                    "order": "submitted_at.desc,id.desc",
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+            response.raise_for_status()
+            rows = response.json()
+            if response.status_code != 200 or not isinstance(rows, list):
+                raise ReportPersistenceError
+            results = []
+            for row in rows:
+                if UUID(row["user_id"]) != reporter_id:
+                    raise ReportPersistenceError
+                results.append(ReportResponse.model_validate({name: row[name] for name in fields}))
+            return results
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError):
+            raise ReportPersistenceError from None
+
     async def get_owned_translation(self, report_id: UUID, reporter_id: UUID) -> str | None:
         """Load minimal analysis input using both trusted ownership and report identity."""
         if not isinstance(report_id, UUID) or not isinstance(reporter_id, UUID):

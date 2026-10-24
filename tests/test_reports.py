@@ -598,9 +598,10 @@ def test_missing_storage_configuration_is_safe(
 
 
 def test_no_public_report_listing(application: FastAPI, data_api: MockDataAPI) -> None:
+    del application.dependency_overrides[require_verified_reporter_id]
     with TestClient(application) as client:
         response = client.get("/api/v1/reports")
-    assert response.status_code == 405
+    assert response.status_code == 401
     assert data_api.requests == []
 
 
