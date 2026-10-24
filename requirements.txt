@@ -3,8 +3,10 @@ fastapi>=0.159.1,<0.160
 uvicorn>=0.35,<1
 pydantic>=2.12,<3
 pydantic-settings>=2.16.1,<3
+httpx>=0.28.1,<0.29
+numpy>=2.1,<3
+scikit-learn>=1.5,<2
 
 # Development and CI tooling
 pytest>=8.4,<10
-httpx>=0.28.1,<0.29
 ruff>=0.14,<1

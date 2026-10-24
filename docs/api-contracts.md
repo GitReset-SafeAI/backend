@@ -136,3 +136,21 @@ reports were understood.
    reads a `map_eligible_incidents` view over synthetic seed data.
 2. **Integrity.** Duplicate and anomaly flags come from the integrity module
    and are not yet available. Every seeded report currently counts once.
+
+### Running the safety map
+
+Both endpoints are implemented. With no Supabase credentials the service reads
+the committed synthetic dataset, so the map is demonstrable without a database:
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m uvicorn app.main:app --reload
+curl "http://127.0.0.1:8000/api/v1/safety-map/hotspots?bbox=79.80,6.80,79.95,6.96"
+```
+
+Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` and the same service reads
+`map_eligible_incidents` instead. Nothing else changes.
+
+Walking routes come from the public OSRM demo server. When it cannot be reached
+the response still returns routes, with `uses_street_network: false` so the app
+can say they are approximate rather than presenting drawn lines as directions.
