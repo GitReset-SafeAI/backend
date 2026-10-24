@@ -133,7 +133,9 @@ def test_conversion_fixed_arguments_and_cleanup(processes, monkeypatch, caplog):
 
 
 @pytest.mark.parametrize("failure", ["probe", "decode", "spawn"])
-def test_subprocess_failure_is_sanitized_and_cleans_up(processes, monkeypatch, tmp_path, failure):
+def test_subprocess_failure_is_sanitized_and_cleans_up(
+    processes, monkeypatch, tmp_path, failure, caplog
+):
     plans, calls = processes
     if failure == "spawn":
 
@@ -151,20 +153,33 @@ def test_subprocess_failure_is_sanitized_and_cleans_up(processes, monkeypatch, t
     assert list(tmp_path.glob("saferoute-audio-*")) == []
     if calls:
         assert_clean(calls)
+    stage = "conversion_decode" if failure == "decode" else "conversion_probe"
+    category = "io_error" if failure == "spawn" else "invalid_media"
+    events = [record for record in caplog.records if "transcription_failure" in record.getMessage()]
+    assert len(events) == 1
+    assert events[0].getMessage() == f"transcription_failure stage={stage} category={category}"
+    assert events[0].exc_info is None and events[0].stack_info is None
+    for value in ("private path and diagnostics", "synthetic-private-audio", str(tmp_path)):
+        assert value not in caplog.text
 
 
 @pytest.mark.parametrize("missing", ["ffmpeg", "ffprobe"])
-def test_missing_runtime_is_controlled_before_temporary_files(monkeypatch, tmp_path, missing):
+def test_missing_runtime_is_controlled_before_temporary_files(
+    monkeypatch, tmp_path, missing, caplog
+):
     monkeypatch.setattr(conversion.shutil, "which", lambda name: None if name == missing else name)
     with pytest.raises(TranscriptionError) as error:
         asyncio.run(FFmpegAudioConverter().convert(b"data", "audio/mp4", 60))
     assert error.value.status_code == 503
     assert list(tmp_path.iterdir()) == []
+    assert (
+        "transcription_failure stage=conversion_preparation category=runtime_missing" in caplog.text
+    )
 
 
 @pytest.mark.parametrize("phase", [0, 1], ids=["probe", "decode"])
 @pytest.mark.parametrize("mode", ["timeout", "cancel"])
-def test_timeout_and_cancellation_kill_reap_and_remove_input(processes, phase, mode):
+def test_timeout_and_cancellation_kill_reap_and_remove_input(processes, phase, mode, caplog):
     plans, calls = processes
     plans[phase].blocked = True
 
@@ -184,6 +199,14 @@ def test_timeout_and_cancellation_kill_reap_and_remove_input(processes, phase, m
         assert_clean(calls)
 
     asyncio.run(scenario())
+    events = [record for record in caplog.records if "transcription_failure" in record.getMessage()]
+    if mode == "cancel":
+        assert events == []
+    else:
+        stage = "conversion_probe" if phase == 0 else "conversion_decode"
+        assert len(events) == 1
+        assert events[0].getMessage() == f"transcription_failure stage={stage} category=timeout"
+        assert events[0].exc_info is None and events[0].stack_info is None
 
 
 @pytest.mark.parametrize(
@@ -331,3 +354,78 @@ def test_real_mp4_with_video_extracts_only_audio(media_factory):
     with wave.open(BytesIO(output)) as wav:
         assert wav.getnchannels() == 1 and wav.getframerate() == 16000
         assert 0 < wav.getnframes() <= 16000
+
+
+@pytest.mark.parametrize("timeout", [0, 31, float("nan"), float("inf")])
+def test_invalid_conversion_timeout_logs_only_fixed_configuration_event(processes, timeout, caplog):
+    _, calls = processes
+    with pytest.raises(TranscriptionError) as error:
+        asyncio.run(
+            FFmpegAudioConverter(timeout).convert(b"synthetic-private-audio", "audio/mp4", 60)
+        )
+    assert error.value.status_code == 503 and calls == []
+    assert (
+        "transcription_failure stage=conversion_preparation category=invalid_configuration"
+        in caplog.text
+    )
+
+
+def test_temporary_storage_failure_logs_preparation_without_exception_details(
+    processes, monkeypatch, caplog
+):
+    def unavailable(*args, **kwargs):
+        raise PermissionError("dummy-sensitive-filesystem-details")
+
+    monkeypatch.setattr(conversion.tempfile, "TemporaryDirectory", unavailable)
+    with pytest.raises(TranscriptionError) as error:
+        asyncio.run(FFmpegAudioConverter().convert(b"synthetic-private-audio", "audio/mp4", 60))
+    assert error.value.status_code == 503
+    assert "transcription_failure stage=conversion_preparation category=io_error" in caplog.text
+    assert "dummy-sensitive-filesystem-details" not in caplog.text
+
+
+@pytest.mark.parametrize("failure", [None, "probe", "decode", "probe_io", "decode_io"])
+def test_cleanup_failure_preserves_primary_diagnostic(
+    processes, monkeypatch, tmp_path, failure, caplog
+):
+    plans, calls = processes
+    original_directory = conversion.tempfile.TemporaryDirectory
+
+    class FailingCleanup(original_directory):
+        def __exit__(self, *args):
+            super().__exit__(*args)
+            raise PermissionError("dummy-sensitive-cleanup-details")
+
+    monkeypatch.setattr(conversion.tempfile, "TemporaryDirectory", FailingCleanup)
+    stage, category = "conversion_cleanup", "io_error"
+    if failure is not None:
+        phase = 0 if failure.startswith("probe") else 1
+        stage = "conversion_probe" if phase == 0 else "conversion_decode"
+        if failure.endswith("_io"):
+
+            def unavailable(*args):
+                raise OSError("dummy-sensitive-processing-details")
+
+            monkeypatch.setattr(plans[phase], "read", unavailable)
+        else:
+            plans[phase].code = 1
+            category = "invalid_media"
+    with pytest.raises(TranscriptionError) as error:
+        asyncio.run(FFmpegAudioConverter().convert(b"synthetic-private-audio", "audio/mp4", 60))
+    # A cleanup I/O error already produces 503; only its diagnostic precedence changes.
+    assert error.value.status_code == 503
+    assert error.value.detail == "Audio transcription is unavailable."
+    assert_clean(calls)
+    events = [record for record in caplog.records if "transcription_failure" in record.getMessage()]
+    assert len(events) == 1
+    assert events[0].getMessage() == f"transcription_failure stage={stage} category={category}"
+    assert events[0].args == (stage, category)
+    assert events[0].exc_info is None and events[0].exc_text is None
+    assert events[0].stack_info is None
+    for sensitive in (
+        "dummy-sensitive-processing-details",
+        "dummy-sensitive-cleanup-details",
+        "synthetic-private-audio",
+        str(tmp_path),
+    ):
+        assert sensitive not in caplog.text + str(error.value)

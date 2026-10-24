@@ -1,6 +1,7 @@
 """Bounded WAV validation and draft transcription, without report persistence."""
 
 import asyncio
+import logging
 import struct
 import wave
 from collections.abc import AsyncIterable
@@ -10,6 +11,8 @@ from typing import Protocol
 
 from app.modules.reporting.schemas import TranscriptionResponse
 from app.schemas.report import LanguageHint
+
+logger = logging.getLogger(__name__)
 
 UPLOAD_TIMEOUT_SECONDS = 30.0
 # A thread-safe, non-waiting limit works across event loops and dependency instances.
@@ -43,12 +46,17 @@ SUPPORTED_MEDIA_TYPES = ("audio/wav", "audio/mp4", "audio/x-m4a", "video/mp4", "
 def validate_transcript(text: object) -> str:
     """Provider text is never logged, truncated, or coerced into a transcript."""
     if not isinstance(text, str) or len(text) > 5000:
+        logger.warning("transcription_failure stage=transcript_validation category=invalid_text")
         raise TranscriptionError
     try:
         text.encode("utf-8")
     except UnicodeError:
+        logger.warning(
+            "transcription_failure stage=transcript_validation category=invalid_encoding"
+        )
         raise TranscriptionError from None
     if not text.strip():
+        logger.warning("transcription_failure stage=transcript_validation category=unusable_text")
         raise InvalidAudio
     return text
 
@@ -146,6 +154,7 @@ class TranscriptionService:
         media_type: str = "audio/wav",
     ) -> TranscriptionResponse:
         if not _TRANSCRIPTION_SLOTS.acquire(blocking=False):
+            logger.warning("transcription_failure stage=capacity category=busy")
             raise TranscriptionError
         try:
             if media_type not in SUPPORTED_MEDIA_TYPES:
@@ -167,6 +176,10 @@ class TranscriptionService:
                 audio = validate_wav(bytes(buffer), self.max_bytes, self.max_duration)
             else:
                 if self._converter is None:
+                    logger.warning(
+                        "transcription_failure stage=conversion_preparation "
+                        "category=converter_missing"
+                    )
                     raise TranscriptionError
                 audio = await self._converter.convert(buffer, media_type, self.max_duration)
             buffer.clear()

@@ -251,6 +251,16 @@ def test_provider_failures_are_safe_without_retries(
     assert len(api.requests) == 1
     for value in ("dummy-sensitive-provider-body", "dummy-groq-key", repr(wav_audio)):
         assert value not in response.text + caplog.text
+    diagnostic = {
+        "timeout": "stage=provider_request category=timeout",
+        "http_error": "stage=provider_request category=http_status status=429",
+        "json": "stage=provider_response category=invalid_json",
+    }[failure]
+    events = [record for record in caplog.records if "transcription_failure" in record.getMessage()]
+    assert len(events) == 1
+    assert events[0].getMessage() == f"transcription_failure {diagnostic}"
+    assert events[0].exc_info is None and events[0].stack_info is None
+    assert "stage=" not in response.text and "category=" not in response.text
 
 
 def test_missing_key_is_safe(

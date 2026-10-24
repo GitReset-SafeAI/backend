@@ -2,12 +2,14 @@
 
 import asyncio
 import json
+import logging
 import math
 import os
 import shutil
 import subprocess
 import tempfile
 import wave
+from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
@@ -19,6 +21,8 @@ from app.modules.reporting.transcription.service import (
     UnsupportedAudio,
     validate_wav,
 )
+
+logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 MAX_PROBE_BYTES = 16384
@@ -37,6 +41,28 @@ class _ProcessState:
         self._lock = Lock()
         self._process: subprocess.Popen | None = None
         self._cancelled = False
+        # Diagnostic marker only: values are fixed literals, never media/exception data.
+        self.stage = "conversion_preparation"
+        self.failure_category = "invalid_media"
+        self.primary: tuple[str, str] | None = None
+
+    @contextmanager
+    def processing(self):
+        """Remember processing metadata before temporary-directory cleanup runs."""
+        try:
+            yield
+        except (TranscriptionError, OSError, subprocess.SubprocessError) as error:
+            category = "io_error"
+            if isinstance(error, TranscriptionError):
+                category = "invalid_media"
+                if error.status_code == 413:
+                    category = "limit_exceeded"
+                elif error.status_code == 415:
+                    category = "unsupported_media"
+            self.primary = self.stage, category
+            raise
+        finally:
+            self.stage = "conversion_cleanup"
 
     def attach(self, process: subprocess.Popen) -> None:
         with self._lock:
@@ -140,9 +166,15 @@ class FFmpegAudioConverter:
         if len(audio) > 10485760 or not 0 < max_duration <= 60:
             raise AudioTooLarge
         if not math.isfinite(self._timeout_seconds) or not 0 < self._timeout_seconds <= 30:
+            logger.warning(
+                "transcription_failure stage=conversion_preparation category=invalid_configuration"
+            )
             raise TranscriptionError
         ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
         if not ffmpeg or not ffprobe:
+            logger.warning(
+                "transcription_failure stage=conversion_preparation category=runtime_missing"
+            )
             raise TranscriptionError
 
         state = _ProcessState()
@@ -158,6 +190,7 @@ class FFmpegAudioConverter:
             async with asyncio.timeout(self._timeout_seconds):
                 return await asyncio.shield(task)
         except BaseException as error:
+            failed_stage = state.stage
             state.cancel()
             while not task.done():
                 try:
@@ -169,14 +202,27 @@ class FFmpegAudioConverter:
             if not task.cancelled():
                 task.exception()  # Consume a worker error without replacing cancellation.
             if isinstance(error, TimeoutError):
+                logger.warning("transcription_failure stage=%s category=timeout", failed_stage)
                 raise TranscriptionError from None
+            if isinstance(error, TranscriptionError):
+                category = state.failure_category
+                if state.primary is not None:
+                    failed_stage, category = state.primary
+                elif error.status_code == 413:
+                    category = "limit_exceeded"
+                elif error.status_code == 415:
+                    category = "unsupported_media"
+                logger.warning("transcription_failure stage=%s category=%s", failed_stage, category)
             raise
 
     @staticmethod
     def _convert(audio, media_type, max_duration, ffmpeg, ffprobe, state) -> bytes:
         try:
             container, codec = CONTAINERS[media_type]
-            with tempfile.TemporaryDirectory(prefix="saferoute-audio-") as temporary:
+            with (
+                tempfile.TemporaryDirectory(prefix="saferoute-audio-") as temporary,
+                state.processing(),
+            ):
                 directory = Path(temporary)
                 source = directory / "input.media"
                 source.write_bytes(audio)
@@ -206,6 +252,7 @@ class FFmpegAudioConverter:
                         "0",
                         "-nofind_stream_info",
                     ]
+                state.stage = "conversion_probe"
                 probe = _run(
                     [
                         ffprobe,
@@ -226,6 +273,7 @@ class FFmpegAudioConverter:
                 )
                 _probe_result(probe, container, codec, max_duration)
                 max_pcm = math.floor(max_duration * SAMPLE_RATE) * 2
+                state.stage = "conversion_decode"
                 pcm = _run(
                     [
                         ffmpeg,
@@ -272,6 +320,7 @@ class FFmpegAudioConverter:
                     max_pcm,
                     decoding=True,
                 )
+                state.stage = "conversion_wav_validation"
                 if not pcm or len(pcm) % 2:
                     raise InvalidAudio
                 # A seekable in-memory WAV writer creates accurate RIFF sizes, unlike
@@ -283,6 +332,8 @@ class FFmpegAudioConverter:
                     wav.setsampwidth(2)
                     wav.setframerate(SAMPLE_RATE)
                     wav.writeframes(pcm)
-                return validate_wav(output.getvalue(), max_pcm + 44, max_duration)
+                normalized = validate_wav(output.getvalue(), max_pcm + 44, max_duration)
+                return normalized
         except (OSError, subprocess.SubprocessError):
+            state.failure_category = "io_error"
             raise TranscriptionError from None
