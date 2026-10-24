@@ -21,11 +21,9 @@ SEED_SQL = HERE.parent / "supabase" / "seed.sql"
 # Stable ids, so regenerating does not churn the seed file.
 NAMESPACE = uuid.UUID("3f2b1a76-0000-4000-8000-5afe20261023")
 
-# Neutral, invented report bodies, prefixed the way the reporting module's own
-# documented example is so synthetic rows are obvious in the database.
+# Invented report bodies; fixture status is recorded in file metadata, not text.
 # language_hint uses that module's vocabulary, including si-Latn for Sinhala
 # written in English letters.
-PREFIX = "Synthetic demo: "
 
 DESCRIPTIONS = {
     "following_night": {
@@ -65,13 +63,34 @@ LIGHTING = {
 SAFETY_STATUS = ("SAFE_NOW", "UNSURE", "MAY_STILL_BE_IN_DANGER", "PREFER_NOT_TO_SAY")
 
 # (name, latitude, longitude, report count, metre spread, dominant profile)
-CLUSTERS = [
+COLOMBO_CLUSTERS = [
     ("Bambalapitiya station approach", 6.8905, 79.8565, 12, 110, "following_night"),
     ("Majestic City side road", 6.8938, 79.8552, 8, 90, "dark_lane"),
-    ("Pettah bus stand", 6.9361, 79.8565, 14, 150, "crowd_contact"),
+    ("Pettah bus stand", 6.9361, 79.8565, 10, 150, "crowd_contact"),
     ("Nugegoda junction", 6.8649, 79.8997, 8, 120, "staring_evening"),
     ("Borella junction", 6.9157, 79.8777, 6, 100, "dark_lane"),
     ("Maradana underpass", 6.9293, 79.8653, 6, 80, "following_night"),
+]
+
+GALLE_CLUSTERS = [
+    ("Galle Fort approach", 6.0278, 80.2170, 10, 100, "staring_evening"),
+    ("Galle bus stand area", 6.0330, 80.2165, 8, 100, "crowd_contact"),
+    ("Galle station approach", 6.0350, 80.2145, 6, 90, "following_night"),
+    ("Unawatuna road area", 6.0100, 80.2490, 6, 120, "dark_lane"),
+]
+
+# Two scattered fictional reports around each approximate town centre.
+OTHER_LOCATIONS = [
+    ("Kandy", 7.2906, 80.6337),
+    ("Jaffna", 9.6615, 80.0255),
+    ("Trincomalee", 8.5874, 81.2152),
+    ("Batticaloa", 7.7102, 81.6924),
+    ("Anuradhapura", 8.3114, 80.4037),
+    ("Kurunegala", 7.4863, 80.3647),
+    ("Ratnapura", 6.6828, 80.3992),
+    ("Badulla", 6.9934, 81.0550),
+    ("Matara", 5.9549, 80.5550),
+    ("Nuwara Eliya", 6.9497, 80.7891),
 ]
 
 PROFILES = {
@@ -105,10 +124,6 @@ PROFILES = {
     },
 }
 
-# Scattered reports that must NOT form a hotspot, so suppression is visible.
-NOISE_POINTS = 24
-NOISE_BOX = (6.84, 79.84, 6.95, 79.92)
-
 METRES_PER_DEGREE = 111_320.0
 
 
@@ -117,7 +132,7 @@ def main() -> None:
     now = datetime.now(UTC)
     rows: list[dict] = []
 
-    def add(latitude: float, longitude: float, profile: str, cluster: str | None) -> None:
+    def add(latitude: float, longitude: float, profile: str, cluster: str, region: str) -> None:
         spec = PROFILES[profile]
         age_days = rng.randint(0, 29)
         index = len(rows) + 1
@@ -133,14 +148,15 @@ def main() -> None:
                 "id": report_id,
                 "reference": f"synthetic-{index:03d}",
                 "cluster": cluster,
+                "region": region,
                 "analysis_id": str(uuid.uuid5(NAMESPACE, f"analysis-{index}")),
                 "occurred_at": (
                     now - timedelta(days=age_days, hours=rng.randint(0, 23))
                 ).isoformat(),
                 "latitude": round(latitude, 6),
                 "longitude": round(longitude, 6),
-                "original_text": PREFIX + DESCRIPTIONS[profile][language],
-                "translated_text": PREFIX + DESCRIPTIONS[profile]["en"],
+                "original_text": DESCRIPTIONS[profile][language],
+                "translated_text": DESCRIPTIONS[profile]["en"],
                 "language_hint": language,
                 "input_method": rng.choice(INPUT_METHODS),
                 "lighting_condition": LIGHTING[reported_lights],
@@ -157,24 +173,33 @@ def main() -> None:
             }
         )
 
-    for name, latitude, longitude, count, spread_m, profile in CLUSTERS:
-        for _ in range(count):
-            spread = spread_m / METRES_PER_DEGREE
+    for region, clusters in (("colombo", COLOMBO_CLUSTERS), ("galle", GALLE_CLUSTERS)):
+        for name, latitude, longitude, count, spread_m, profile in clusters:
+            for _ in range(count):
+                spread = spread_m / METRES_PER_DEGREE
+                add(
+                    latitude + rng.gauss(0, spread),
+                    longitude + rng.gauss(0, spread),
+                    profile,
+                    name,
+                    region,
+                )
+
+    for name, latitude, longitude in OTHER_LOCATIONS:
+        for _ in range(2):
             add(
-                latitude + rng.gauss(0, spread),
-                longitude + rng.gauss(0, spread),
-                profile,
+                latitude + rng.uniform(-0.004, 0.004),
+                longitude + rng.uniform(-0.004, 0.004),
+                rng.choice(list(PROFILES)),
                 name,
+                "other",
             )
 
-    min_lat, min_lon, max_lat, max_lon = NOISE_BOX
-    for _ in range(NOISE_POINTS):
-        add(
-            rng.uniform(min_lat, max_lat),
-            rng.uniform(min_lon, max_lon),
-            rng.choice(list(PROFILES)),
-            None,
-        )
+    assert len(rows) == 100
+    assert {
+        region: sum(row["region"] == region for row in rows)
+        for region in ("colombo", "galle", "other")
+    } == {"colombo": 50, "galle": 30, "other": 20}
 
     _write_seed_sql(rows)
     OUTPUT.write_text(
@@ -188,7 +213,8 @@ def main() -> None:
             },
             indent=2,
         )
-        + "\n"
+        + "\n",
+        encoding="utf-8",
     )
     print(f"wrote {len(rows)} synthetic reports to {OUTPUT}")
 
@@ -212,6 +238,7 @@ def _write_seed_sql(rows: list[dict]) -> None:
     account rather than inventing one. Ids are deterministic, so re-running
     replaces the previous synthetic rows instead of duplicating them.
     """
+    fixture_ids = ",\n        ".join(_sql(row["id"]) for row in rows)
     report_values = ",\n".join(
         "        ("
         + ", ".join(
@@ -268,13 +295,14 @@ def _write_seed_sql(rows: list[dict]) -> None:
 --
 -- Generated by sample-data/generate_synthetic_reports.py. Every row is
 -- invented: these are not real reports, and they do not describe real
--- harassment or real risk at the places named. Report bodies are prefixed
--- "Synthetic demo: " so they are obvious in the database.
+-- harassment or real risk at the places named. Report text has no fixture prefix.
+-- Stable UUIDs identify these fixtures for replacement.
 --
 -- public.reports.user_id references auth.users, so this attaches the rows to
 -- one existing account instead of inventing a user. Create an account first
 -- if the project has none.
 --
+-- 100 report-analysis pairs: Colombo 50, Galle 30, other Sri Lankan towns 20.
 -- Safe to re-run: the same rows are replaced, never duplicated.
 
 begin;
@@ -282,6 +310,9 @@ begin;
 do $$
 declare
     demo_user uuid;
+    fixture_report_ids uuid[] := ARRAY[
+        {fixture_ids}
+    ]::uuid[];
 begin
     select id into demo_user from auth.users order by created_at limit 1;
     if demo_user is null then
@@ -289,10 +320,8 @@ begin
             'No auth.users row exists. Create one account before seeding demo data.';
     end if;
 
-    delete from public.incident_ai_analyses where report_id in (
-        select id from public.reports where original_text like 'Synthetic demo:%'
-    );
-    delete from public.reports where original_text like 'Synthetic demo:%';
+    delete from public.incident_ai_analyses where report_id = ANY(fixture_report_ids);
+    delete from public.reports where id = ANY(fixture_report_ids);
 
     insert into public.reports (
         id, user_id, original_text, translated_text, input_method,
@@ -310,7 +339,8 @@ begin
 end $$;
 
 commit;
-"""
+""",
+        encoding="utf-8",
     )
 
 
