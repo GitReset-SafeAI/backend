@@ -128,13 +128,34 @@ written in mixed Sinhala and English can score low without being false. Each
 hotspot publishes `mean_confidence` so the map can say how well the underlying
 reports were understood.
 
+### Reports and location
+
+`incident_ai_analyses` has no coordinates, so
+`20261023000400_create_incident_reports.sql` proposes the reports table that
+`report_id` points at, with a PostGIS `geography(Point, 4326)` column.
+
+It is written for reporting rather than only for the map: the report body,
+input method, report language, the optional time, location and context
+answers, and the integrity columns. Everything except the body is optional,
+because a report must not be rejected for unanswered optional questions. A
+report with no location is analysed normally; it simply cannot contribute to an
+area. Context columns reuse the `incident_ai_analyses` vocabularies, so a value
+a reporter gave and a value the AI inferred are directly comparable, and the
+view prefers the reporter's answer where both exist.
+
+No foreign key is declared between the two tables yet, so the modules can be
+developed and seeded independently. Add one once both write through the same
+path. The reporting module owns this table and should extend it rather than
+replace it.
+
+`supabase/seed.sql` loads the same synthetic dataset into those tables, marked
+`is_synthetic` so demo rows can always be told apart and removed. Regenerate
+both it and the JSON with
+`python sample-data/generate_synthetic_reports.py`.
+
 ### Open items
 
-1. **Location.** `incident_ai_analyses` has no coordinates; it is keyed by
-   `report_id`. Hotspots need a reports table with a `geography(Point, 4326)`
-   column, which does not exist on any branch yet. Until it does, Module 4
-   reads a `map_eligible_incidents` view over synthetic seed data.
-2. **Integrity.** Duplicate and anomaly flags come from the integrity module
+1. **Integrity.** Duplicate and anomaly flags come from the integrity module
    and are not yet available. Every seeded report currently counts once.
 
 ### Running the safety map
