@@ -16,6 +16,9 @@ from app.core.security import (
     InvalidCredentials,
     get_token_verifier,
 )
+from app.modules.incident_ai.classifier import GroqIncidentClassifier
+from app.modules.incident_ai.repository import SupabaseAnalysisRepository
+from app.modules.incident_ai.service import IncidentAnalysisService
 from app.modules.reporting.service import ReportService
 from app.modules.reporting.transcription.conversion import FFmpegAudioConverter
 from app.modules.reporting.transcription.provider import GroqTranscriber
@@ -87,9 +90,27 @@ async def get_report_repository(
         ) from None
 
 
+def get_report_analyzer(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> IncidentAnalysisService:
+    """Use the same analysis pipeline as the manual incident-AI endpoint."""
+    return IncidentAnalysisService(
+        GroqIncidentClassifier(
+            api_key=settings.groq_api_key.get_secret_value(),
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            timeout_seconds=settings.llm_timeout_seconds,
+        ),
+        SupabaseAnalysisRepository(
+            settings.supabase_url, settings.supabase_service_role_key.get_secret_value()
+        ),
+    )
+
+
 def get_report_service(
     repository: Annotated[ReportRepository, Depends(get_report_repository)],
     settings: Annotated[Settings, Depends(get_settings)],
+    analyzer: Annotated[IncidentAnalysisService, Depends(get_report_analyzer)],
 ) -> ReportService:
     """Keep translation credentials separate from verified identity and database access."""
     return ReportService(
@@ -100,6 +121,7 @@ def get_report_service(
             base_url=settings.llm_base_url,
             timeout_seconds=settings.llm_timeout_seconds,
         ),
+        analyzer,
     )
 
 

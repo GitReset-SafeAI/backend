@@ -7,7 +7,6 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.report import (
-    CrowdLevel,
     CurrentSafetyStatus,
     InputMethod,
     LanguageHint,
@@ -71,7 +70,7 @@ def test_english_submission(submission_data: dict[str, object]) -> None:
     assert report.longitude is None
     assert report.occurred_at is None
     assert report.lighting_condition is None
-    assert report.crowd_level is None
+    assert report.reported_time is None
     assert report.current_safety_status is None
     assert set(report.model_dump()) == {
         "original_text",
@@ -82,7 +81,7 @@ def test_english_submission(submission_data: dict[str, object]) -> None:
         "longitude",
         "occurred_at",
         "lighting_condition",
-        "crowd_level",
+        "reported_time",
         "current_safety_status",
     }
 
@@ -92,7 +91,7 @@ def test_all_context_fields(
 ) -> None:
     context = {
         "lighting_condition": "DAYLIGHT",
-        "crowd_level": "NOT_VERY_CROWDED",
+        "reported_time": "02:30",
         "current_safety_status": "MAY_STILL_BE_IN_DANGER",
     }
     submission_data.update(context)
@@ -103,7 +102,7 @@ def test_all_context_fields(
         ReportResponse.model_validate(response_data),
     ):
         assert report.lighting_condition is LightingCondition.DAYLIGHT
-        assert report.crowd_level is CrowdLevel.NOT_VERY_CROWDED
+        assert report.reported_time == "02:30"
         assert report.current_safety_status is CurrentSafetyStatus.MAY_STILL_BE_IN_DANGER
         for field_name, value in context.items():
             assert report.model_dump(mode="json")[field_name] == value
@@ -117,11 +116,11 @@ def test_all_context_fields(
         ("lighting_condition", "POORLY_LIT_OR_DARK"),
         ("lighting_condition", "DAYLIGHT"),
         ("lighting_condition", "UNKNOWN_OR_PREFER_NOT_TO_SAY"),
-        ("crowd_level", "ALMOST_EMPTY"),
-        ("crowd_level", "NOT_VERY_CROWDED"),
-        ("crowd_level", "MODERATELY_CROWDED"),
-        ("crowd_level", "VERY_CROWDED"),
-        ("crowd_level", "UNKNOWN_OR_PREFER_NOT_TO_SAY"),
+        ("reported_time", "02:30"),
+        ("reported_time", "02:30"),
+        ("reported_time", "5 PM"),
+        ("reported_time", "17:30"),
+        ("reported_time", "not_sure"),
         ("current_safety_status", "SAFE_NOW"),
         ("current_safety_status", "UNSURE"),
         ("current_safety_status", "MAY_STILL_BE_IN_DANGER"),
@@ -141,12 +140,13 @@ def test_allowed_context_values(
         ReportSubmission.model_validate(submission_data),
         ReportResponse.model_validate(response_data),
     ):
-        assert getattr(report, field_name).value == value
+        actual = getattr(report, field_name)
+        assert (actual if field_name == "reported_time" else actual.value) == value
         assert report.model_dump(mode="json")[field_name] == value
 
 
 @pytest.mark.parametrize(
-    "field_name", ["lighting_condition", "crowd_level", "current_safety_status"]
+    "field_name", ["lighting_condition", "reported_time", "current_safety_status"]
 )
 def test_context_field_accepts_null(
     submission_data: dict[str, object], response_data: dict[str, object], field_name: str
@@ -161,7 +161,7 @@ def test_context_field_accepts_null(
 def test_all_context_fields_accept_null(
     submission_data: dict[str, object], response_data: dict[str, object]
 ) -> None:
-    context = {"lighting_condition": None, "crowd_level": None, "current_safety_status": None}
+    context = {"lighting_condition": None, "reported_time": None, "current_safety_status": None}
     submission_data.update(context)
     response_data.update(context)
 
@@ -170,12 +170,12 @@ def test_all_context_fields_accept_null(
         ReportResponse.model_validate(response_data),
     ):
         assert report.lighting_condition is None
-        assert report.crowd_level is None
+        assert report.reported_time is None
         assert report.current_safety_status is None
 
 
 @pytest.mark.parametrize(
-    "field_name", ["lighting_condition", "crowd_level", "current_safety_status"]
+    "field_name", ["lighting_condition", "reported_time", "current_safety_status"]
 )
 @pytest.mark.parametrize("value", ["INVALID", "", 1, False])
 def test_invalid_context_values(
@@ -199,8 +199,8 @@ def test_invalid_context_values(
     [
         ("lighting_condition", "well_lit"),
         ("lighting_condition", "SAFE_NOW"),
-        ("crowd_level", "very_crowded"),
-        ("crowd_level", "DAYLIGHT"),
+        ("reported_time", "very_crowded"),
+        ("reported_time", "DAYLIGHT"),
         ("current_safety_status", "safe_now"),
         ("current_safety_status", "WELL_LIT"),
     ],
@@ -409,7 +409,7 @@ def test_saved_report(response_data: dict[str, object]) -> None:
     assert report.submitted_at == datetime(2026, 10, 23, 4, 30, tzinfo=UTC)
     assert report.submitted_at.utcoffset() == timedelta(0)
     assert report.lighting_condition is None
-    assert report.crowd_level is None
+    assert report.reported_time is None
     assert report.current_safety_status is None
     assert set(report.model_dump()) == set(ReportSubmission.model_fields) | {
         "id",

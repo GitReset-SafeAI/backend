@@ -62,13 +62,6 @@ LIGHTING = {
     "day_light": "DAYLIGHT",
     "not_sure": "UNKNOWN_OR_PREFER_NOT_TO_SAY",
 }
-CROWD_LEVELS = (
-    "ALMOST_EMPTY",
-    "NOT_VERY_CROWDED",
-    "MODERATELY_CROWDED",
-    "VERY_CROWDED",
-    "UNKNOWN_OR_PREFER_NOT_TO_SAY",
-)
 SAFETY_STATUS = ("SAFE_NOW", "UNSURE", "MAY_STILL_BE_IN_DANGER", "PREFER_NOT_TO_SAY")
 
 # (name, latitude, longitude, report count, metre spread, dominant profile)
@@ -151,7 +144,6 @@ def main() -> None:
                 "language_hint": language,
                 "input_method": rng.choice(INPUT_METHODS),
                 "lighting_condition": LIGHTING[reported_lights],
-                "crowd_level": rng.choice(CROWD_LEVELS),
                 "current_safety_status": rng.choice(SAFETY_STATUS),
                 "incident_category": rng.choice(spec["incident"]),
                 "safety_concern_category": rng.choice(spec["concern"]),
@@ -234,7 +226,7 @@ def _write_seed_sql(rows: list[dict]) -> None:
                 str(row["longitude"]),
                 _sql(row["occurred_at"]),
                 _sql(row["lighting_condition"]),
-                _sql(row["crowd_level"]),
+                _sql(row["reported_time"]),
                 _sql(row["current_safety_status"]),
             ]
         )
@@ -305,7 +297,7 @@ begin
     insert into public.reports (
         id, user_id, original_text, translated_text, input_method,
         language_hint, latitude, longitude, occurred_at,
-        lighting_condition, crowd_level, current_safety_status
+        lighting_condition, reported_time, current_safety_status
     ) values
 {report_values};
 
