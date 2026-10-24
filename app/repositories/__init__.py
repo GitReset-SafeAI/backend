@@ -1,1 +1,1 @@
-"""Data access layer for future Supabase/PostgreSQL integration."""
+"""Data access repositories for backend persistence."""

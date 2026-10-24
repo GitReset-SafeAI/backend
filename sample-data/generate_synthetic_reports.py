@@ -21,34 +21,55 @@ SEED_SQL = HERE.parent / "supabase" / "seed.sql"
 # Stable ids, so regenerating does not churn the seed file.
 NAMESPACE = uuid.UUID("3f2b1a76-0000-4000-8000-5afe20261023")
 
-# Neutral, invented report bodies. Deliberately plain: synthetic data should
-# carry no more detail than the demo needs.
+# Neutral, invented report bodies, prefixed the way the reporting module's own
+# documented example is so synthetic rows are obvious in the database.
+# language_hint uses that module's vocabulary, including si-Latn for Sinhala
+# written in English letters.
+PREFIX = "Synthetic demo: "
+
 DESCRIPTIONS = {
-    "following_night": [
-        ("en", "Someone followed me from the station for several minutes."),
-        ("si", "ස්ථානයෙන් පිටව යන විට කෙනෙකු මා පසුපස පැමිණියා."),
-        ("mixed", "Bus eken බැස්ස ගමන් kenek mage passen awa."),
-    ],
-    "dark_lane": [
-        ("en", "The lane had no working lights and felt unsafe."),
-        ("si", "මෙම පාරේ ආලෝකය නොතිබූ අතර අනාරක්ෂිත බවක් දැනුණා."),
-        ("mixed", "Light නැති nisa ratte eka parata yanna bayai."),
-    ],
-    "crowd_contact": [
-        ("en", "Someone pushed against me while boarding and would not move away."),
-        ("si", "බසයට නගින විට කෙනෙකු ළං වී ඉවත් නොවුණා."),
-        ("mixed", "Bus ekata nagina kota kenek langa wela aine."),
-    ],
-    "staring_evening": [
-        ("en", "A man kept staring and moved closer when I moved away."),
-        ("si", "පුද්ගලයෙකු දිගටම බලා සිටි අතර මා ඉවත් වූ විට ළං වුණා."),
-        ("mixed", "Ekka kenek digatama balagena hitiya, man යනකොටත් passen awa."),
-    ],
+    "following_night": {
+        "en": "someone followed me from the station for several minutes.",
+        "si": "ස්ථානයෙන් පිටව යන විට කෙනෙකු මා පසුපස පැමිණියා.",
+        "si-Latn": "bus eken bassa gaman kenek mage passen awa.",
+    },
+    "dark_lane": {
+        "en": "the lane had no working lights and felt unsafe.",
+        "si": "මෙම පාරේ ආලෝකය නොතිබූ අතර අනාරක්ෂිත බවක් දැනුණා.",
+        "si-Latn": "light nathi nisa e parata yanna bayai.",
+    },
+    "crowd_contact": {
+        "en": "someone pushed against me while boarding and would not move away.",
+        "si": "බසයට නගින විට කෙනෙකු ළං වී ඉවත් නොවුණා.",
+        "si-Latn": "bus ekata nagina kota kenek langa wela ayin une na.",
+    },
+    "staring_evening": {
+        "en": "a man kept staring and moved closer when I moved away.",
+        "si": "පුද්ගලයෙකු දිගටම බලා සිටි අතර මා ඉවත් වූ විට ළං වුණා.",
+        "si-Latn": "kenek digatama balagena hitiya, man ayin wenakota langa una.",
+    },
 }
 
+LANGUAGES = ("en", "si", "si-Latn")
 INPUT_METHODS = ("text", "text", "text", "voice")
-CROWD_LEVELS = ("empty", "few_people", "busy", "crowded", "not_sure")
-LOCATION_SOURCES = ("device", "map_pin", "place_name")
+
+# The reporting module's own context vocabularies, which differ in case and
+# wording from the incident-AI ones; they are not interchangeable.
+LIGHTING = {
+    "well_lit": "WELL_LIT",
+    "partially_lit": "PARTIALLY_LIT",
+    "poorly_lit_or_dark": "POORLY_LIT_OR_DARK",
+    "day_light": "DAYLIGHT",
+    "not_sure": "UNKNOWN_OR_PREFER_NOT_TO_SAY",
+}
+CROWD_LEVELS = (
+    "ALMOST_EMPTY",
+    "NOT_VERY_CROWDED",
+    "MODERATELY_CROWDED",
+    "VERY_CROWDED",
+    "UNKNOWN_OR_PREFER_NOT_TO_SAY",
+)
+SAFETY_STATUS = ("SAFE_NOW", "UNSURE", "MAY_STILL_BE_IN_DANGER", "PREFER_NOT_TO_SAY")
 
 # (name, latitude, longitude, report count, metre spread, dominant profile)
 CLUSTERS = [
@@ -108,9 +129,9 @@ def main() -> None:
         age_days = rng.randint(0, 29)
         index = len(rows) + 1
         report_id = str(uuid.uuid5(NAMESPACE, f"report-{index}"))
-        language, description = rng.choice(DESCRIPTIONS[profile])
+        language = rng.choice(LANGUAGES)
         ai_lights = rng.choice(spec["lights"])
-        # Reporters answer the optional lighting question about half the time.
+        # Reporters answer the optional context questions about half the time.
         reported_lights = ai_lights if rng.random() < 0.5 else "not_sure"
         reported_time = rng.choice(spec["times"])
 
@@ -125,20 +146,19 @@ def main() -> None:
                 ).isoformat(),
                 "latitude": round(latitude, 6),
                 "longitude": round(longitude, 6),
-                "description": description,
-                "report_language": language,
+                "original_text": PREFIX + DESCRIPTIONS[profile][language],
+                "translated_text": PREFIX + DESCRIPTIONS[profile]["en"],
+                "language_hint": language,
                 "input_method": rng.choice(INPUT_METHODS),
-                "location_source": rng.choice(LOCATION_SOURCES),
-                "location_accuracy_m": rng.choice([8, 15, 25, 40]),
+                "lighting_condition": LIGHTING[reported_lights],
                 "crowd_level": rng.choice(CROWD_LEVELS),
-                "others_nearby": rng.choice([True, False, None]),
-                "reported_street_lights": reported_lights,
+                "current_safety_status": rng.choice(SAFETY_STATUS),
                 "incident_category": rng.choice(spec["incident"]),
                 "safety_concern_category": rng.choice(spec["concern"]),
-                # The view prefers what the reporter said over what the AI
-                # inferred, so the no-database path resolves it the same way.
-                "street_lights": ai_lights if reported_lights == "not_sure" else reported_lights,
-                "ai_street_lights": ai_lights,
+                # The map reads lighting from the incident-AI column only. The
+                # reporter's own answer is private context that the reporting
+                # module has not approved for map responses.
+                "street_lights": ai_lights,
                 "reported_time": reported_time,
                 "severity": rng.randint(*spec["severity"]),
                 "confidence": round(rng.uniform(0.45, 0.97), 2),
@@ -193,98 +213,113 @@ def _sql(value) -> str:
 
 
 def _write_seed_sql(rows: list[dict]) -> None:
-    """Emit the same dataset as SQL, for a database-backed demo."""
-    lines = [
-        "-- Synthetic demo data for the safety map.",
-        "--",
-        "-- Generated by sample-data/generate_synthetic_reports.py. Every row is",
-        "-- invented: these are not real reports, and they do not describe real",
-        "-- harassment or real risk at the places named. Rows are marked",
-        "-- is_synthetic so they can always be told apart and removed.",
-        "--",
-        "-- Safe to re-run: existing synthetic rows are replaced.",
-        "",
-        "BEGIN;",
-        "",
-        "DELETE FROM public.incident_ai_analyses",
-        " WHERE report_id IN (SELECT id FROM public.incident_reports WHERE is_synthetic);",
-        "DELETE FROM public.incident_reports WHERE is_synthetic;",
-        "",
-        "INSERT INTO public.incident_reports (",
-        "    id, created_at, description, input_method, report_language,",
-        "    occurred_at, reported_time, location, location_source,",
-        "    location_accuracy_m, reported_street_lights, crowd_level,",
-        "    others_nearby, is_synthetic",
-        ") VALUES",
-    ]
-    values = []
-    for row in rows:
-        values.append(
-            "    ("
-            + ", ".join(
-                [
-                    _sql(row["id"]),
-                    "now()",
-                    _sql(row["description"]),
-                    _sql(row["input_method"]),
-                    _sql(row["report_language"]),
-                    _sql(row["occurred_at"]),
-                    _sql(row["reported_time"]),
-                    "ST_SetSRID(ST_MakePoint("
-                    f"{row['longitude']}, {row['latitude']}), 4326)::geography",
-                    _sql(row["location_source"]),
-                    _sql(row["location_accuracy_m"]),
-                    _sql(row["reported_street_lights"]),
-                    _sql(row["crowd_level"]),
-                    _sql(row["others_nearby"]),
-                    "true",
-                ]
-            )
-            + ")"
-        )
-    lines.append(",\n".join(values) + ";")
+    """Emit the same dataset as SQL, for a database-backed demo.
 
-    lines += [
-        "",
-        "INSERT INTO public.incident_ai_analyses (",
-        '    id, report_id, analysis_status, "IncidentCategory",',
-        '    "SafetyConcernCategory", reported_time, immediate_danger_reported,',
-        "    severity, confidence, street_lights, extracted_details",
-        ") VALUES",
-    ]
-    values = []
-    for row in rows:
-        values.append(
-            "    ("
-            + ", ".join(
-                [
-                    _sql(row["analysis_id"]),
-                    _sql(row["id"]),
-                    "'completed'",
-                    _sql(row["incident_category"]),
-                    _sql(row["safety_concern_category"]),
-                    _sql(row["reported_time"]),
-                    "false",
-                    _sql(row["severity"]),
-                    _sql(row["confidence"]),
-                    _sql(row["ai_street_lights"]),
-                    "'"
-                    + json.dumps(
-                        {
-                            "summary": None,
-                            "reported_behaviours": [],
-                            "reported_location": None,
-                        }
-                    )
-                    + "'::jsonb",
-                ]
-            )
-            + ")"
+    Reports belong to the reporting module's public.reports, whose user_id
+    references auth.users, so the seed attaches every row to one existing
+    account rather than inventing one. Ids are deterministic, so re-running
+    replaces the previous synthetic rows instead of duplicating them.
+    """
+    report_values = ",\n".join(
+        "        ("
+        + ", ".join(
+            [
+                _sql(row["id"]),
+                "demo_user",
+                _sql(row["original_text"]),
+                _sql(row["translated_text"]),
+                _sql(row["input_method"]),
+                _sql(row["language_hint"]),
+                str(row["latitude"]),
+                str(row["longitude"]),
+                _sql(row["occurred_at"]),
+                _sql(row["lighting_condition"]),
+                _sql(row["crowd_level"]),
+                _sql(row["current_safety_status"]),
+            ]
         )
-    lines.append(",\n".join(values) + ";")
-    lines += ["", "COMMIT;", ""]
+        + ")"
+        for row in rows
+    )
 
-    SEED_SQL.write_text("\n".join(lines))
+    analysis_values = ",\n".join(
+        "        ("
+        + ", ".join(
+            [
+                _sql(row["analysis_id"]),
+                _sql(row["id"]),
+                "'completed'",
+                _sql(row["incident_category"]),
+                _sql(row["safety_concern_category"]),
+                _sql(row["reported_time"]),
+                "false",
+                _sql(row["severity"]),
+                _sql(row["confidence"]),
+                _sql(row["street_lights"]),
+                "'"
+                + json.dumps(
+                    {
+                        "summary": None,
+                        "reported_behaviours": [],
+                        "reported_location": None,
+                    }
+                )
+                + "'::jsonb",
+            ]
+        )
+        + ")"
+        for row in rows
+    )
+
+    SEED_SQL.write_text(
+        f"""-- Synthetic demo data for the safety map.
+--
+-- Generated by sample-data/generate_synthetic_reports.py. Every row is
+-- invented: these are not real reports, and they do not describe real
+-- harassment or real risk at the places named. Report bodies are prefixed
+-- "Synthetic demo: " so they are obvious in the database.
+--
+-- public.reports.user_id references auth.users, so this attaches the rows to
+-- one existing account instead of inventing a user. Create an account first
+-- if the project has none.
+--
+-- Safe to re-run: the same rows are replaced, never duplicated.
+
+begin;
+
+do $$
+declare
+    demo_user uuid;
+begin
+    select id into demo_user from auth.users order by created_at limit 1;
+    if demo_user is null then
+        raise exception
+            'No auth.users row exists. Create one account before seeding demo data.';
+    end if;
+
+    delete from public.incident_ai_analyses where report_id in (
+        select id from public.reports where original_text like 'Synthetic demo:%'
+    );
+    delete from public.reports where original_text like 'Synthetic demo:%';
+
+    insert into public.reports (
+        id, user_id, original_text, translated_text, input_method,
+        language_hint, latitude, longitude, occurred_at,
+        lighting_condition, crowd_level, current_safety_status
+    ) values
+{report_values};
+
+    insert into public.incident_ai_analyses (
+        id, report_id, analysis_status, "IncidentCategory",
+        "SafetyConcernCategory", reported_time, immediate_danger_reported,
+        severity, confidence, street_lights, extracted_details
+    ) values
+{analysis_values};
+end $$;
+
+commit;
+"""
+    )
 
 
 if __name__ == "__main__":

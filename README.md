@@ -2,15 +2,18 @@
 
 FastAPI foundation for SafeRoute AI, a planned harassment reporting, hotspot
 detection, and safety-aware route recommendation application for Sri Lanka.
-Only a health endpoint is implemented. See the original [project overview](README)
-for the wider product context.
+Health and authenticated report-creation routes are implemented. Live Supabase
+signing configuration and persistence still need verification. See the original
+[project overview](README) for the wider product context.
 
 ## Stack and prerequisites
 
 - Python 3.12+ (`.python-version` selects 3.12 for CI).
 - FastAPI, Uvicorn, Pydantic, and pydantic-settings.
-- pytest and HTTPX for tests; Ruff for linting and formatting.
-- Planned Supabase/PostgreSQL integration; no database or Supabase SDK is needed yet.
+- HTTPX for server-side Supabase Data API access and mocked HTTP tests.
+- PyJWT with cryptography for asymmetric Supabase access-token verification.
+- pytest for tests; Ruff for linting and formatting.
+- Supabase/PostgreSQL migrations; no database or Supabase SDK is needed for normal tests.
 - GitHub Actions for checks on pushes and pull requests.
 
 Install Python with pip and venv support, then run commands from the repository root.
@@ -75,37 +78,25 @@ without credentials or external network requests. CI runs the same checks.
 
 ## Project organisation and planned work
 
-`app/main.py` creates the single application using `create_app()` and mounts
-`app/api/router.py` under `/api/v1`. The central router registers the health
-endpoint and the four feature routers. Feature routers are currently empty;
-no placeholder endpoints are exposed and feature URL paths remain undecided.
+`app/main.py` creates the application and registers versioned routers.
+`app/core` holds settings and token verification; `app/api` holds routes
+and reusable dependencies. `app/schemas`, `app/services`, `app/repositories`, and
+`app/utils` provide boundaries for shared schemas, business services, database
+access, and utilities as features are added. Supabase migrations belong in
+`supabase/migrations`; `seed.sql` currently inserts nothing.
 
-| Module | Owner | Responsibilities |
-|---|---|---|
-| `app/modules/reporting` | Person 1 | Reporting, transcription, English translation, persistence, authentication integration, ownership, and privacy |
-| `app/modules/incident_ai` | Person 2 | Classification, provisional severity, confidence, extracted details, and AI-provider failure handling |
-| `app/modules/integrity` | Person 3 | Duplicate detection, suspicious patterns, anomaly flags, and moderation support |
-| `app/modules/safety_map` | Person 4 | Geospatial queries, hotspots, aggregated maps, and walking-route comparisons |
+The reports migrations define reporting storage, nullable context fields, and
+creation privileges with RLS enabled and ordinary client access withheld. The
+creation repository uses the configured Supabase HTTPS URL and modern secret
+key, separately from JWT verification through public JWKS. Report ownership comes
+only from the verified token subject. See [authentication](docs/authentication.md)
+for supported signing mode and registration/NIC decisions, and
+[reporting database notes](docs/database.md) for constraints and the local SQL check.
 
-Within each feature, `router.py` handles HTTP concerns, `schemas.py` holds
-module-local data models once agreed, `service.py` holds business logic, and
-`repository.py` handles persistence where needed. Other files mark focused
-feature responsibilities and contain only docstrings for now. Do not import
-another feature's internal implementation; agree on explicit interfaces before
-connecting modules. Shared report models, database schema, and inter-module
-contracts remain open for team agreement.
-
-`app/core` retains shared settings and security utilities and is the location for
-future application-wide error handling. `app/api/dependencies.py` remains the
-shared HTTP dependency location. The original empty `app/schemas`, `app/services`,
-`app/repositories`, and `app/utils` packages are preserved; feature work belongs
-in `app/modules`, and genuinely shared code should be coordinated with the team.
-Supabase migrations belong in `supabase/migrations`; there are no schema
-migrations yet and `seed.sql` inserts nothing.
-
-Reporting, language classification, severity assessment, anomaly detection,
-hotspot analysis, and route comparison are planned and unimplemented. No database
-connection or authentication is established at startup.
+Language classification, severity assessment, anomaly detection, hotspot analysis,
+and route comparison are planned and unimplemented. No database connection or
+authentication is established at startup. The report endpoint and its
+401/403/503 error behaviour are documented in [API contracts](docs/api-contracts.md).
 
 For parallel development, agree on contracts in [API contracts](docs/api-contracts.md),
 keep feature changes focused in their layers, and run checks before opening a PR.
