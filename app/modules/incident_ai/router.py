@@ -35,6 +35,11 @@ async def analyze_incident(
     """Convert translated English report text into a provisional structured record."""
 
     try:
-        return await service.analyze(request.translated_text, request.report_id)
+        return await service.analyze(
+            request.translated_text,
+            request.report_id,
+            request.reported_time,
+            request.street_lights,
+        )
     except AnalysisStorageError as exc:
         raise HTTPException(status_code=503, detail="Could not save incident analysis") from exc

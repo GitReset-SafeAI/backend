@@ -22,6 +22,7 @@ FIELDS = {
     "IncidentCategory",
     "SafetyConcernCategory",
     "reported_time",
+    "street_lights",
     "immediate_danger_reported",
     "severity",
     "confidence",
@@ -32,6 +33,7 @@ PAYLOAD = {
     "IncidentCategory": "UNWANTED_FOLLOWING",
     "SafetyConcernCategory": "POOR_STREET_LIGHTING",
     "reported_time": "last night",
+    "street_lights": "poorly_lit_or_dark",
     "immediate_danger_reported": None,
     "severity": 6,
     "confidence": 0.9,
@@ -123,3 +125,51 @@ def test_database_failure_is_not_reported_as_success() -> None:
         )
     assert response.status_code == 503
     assert response.json() == {"detail": "Could not save incident analysis"}
+
+
+@pytest.mark.parametrize("failed", [False, True])
+@pytest.mark.parametrize(
+    "supplied",
+    [
+        {"reported_time": "today at noon", "street_lights": "day_light"},
+        {"reported_time": "today at noon"},
+        {"street_lights": "not_sure"},
+    ],
+)
+def test_supplied_details_override_model_and_are_saved(failed: bool, supplied: dict) -> None:
+    app = create_app()
+    repository = FakeRepository()
+    app.dependency_overrides[get_incident_analysis_service] = lambda: IncidentAnalysisService(
+        FailingClassifier() if failed else FakeClassifier(), repository
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/incident-ai/analyze",
+            json={
+                "report_id": REPORT_ID,
+                "translated_text": "Someone followed me.",
+                **supplied,
+            },
+        )
+    assert response.status_code == 200
+    result = response.json()
+    for field, value in supplied.items():
+        assert result[field] == value
+    if "reported_time" not in supplied:
+        assert result["reported_time"] == (None if failed else PAYLOAD["reported_time"])
+    if "street_lights" not in supplied:
+        assert result["street_lights"] == ("not_sure" if failed else PAYLOAD["street_lights"])
+    assert repository.saved[0].model_dump(mode="json") == result
+
+
+def test_invalid_lighting_rejected_before_provider_call() -> None:
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/api/v1/incident-ai/analyze",
+            json={
+                "report_id": REPORT_ID,
+                "translated_text": "A report",
+                "street_lights": "invalid",
+            },
+        )
+    assert response.status_code == 422
