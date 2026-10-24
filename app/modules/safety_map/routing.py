@@ -25,6 +25,15 @@ USER_AGENT = "SafeRouteAI/0.1 (student project; safety map journey planner)"
 
 WALKING_SPEED_MPS = 1.35
 
+# The public OSRM demo server serves only the car profile: foot, bike and
+# driving all return identical geometry and timings. Driving therefore uses
+# OSRM's own duration, which is accurate, while walking is derived from the
+# distance at walking pace. The path itself follows the road network either
+# way, which the app states rather than implying a pedestrian route.
+TravelMode = str
+DRIVING = "driving"
+WALKING = "walking"
+
 # Route points are compared against hotspots every 25 m.
 SAMPLE_SPACING_M = 25.0
 
@@ -122,7 +131,7 @@ def score_route(
 
 async def _osrm_request(
     client: httpx.AsyncClient, points: list[tuple[float, float]], alternatives: bool
-) -> list[list[tuple[float, float]]]:
+) -> list[tuple[list[tuple[float, float]], float]]:
     coordinates = ";".join(f"{point[1]},{point[0]}" for point in points)
     try:
         response = await client.get(
@@ -152,7 +161,7 @@ async def _osrm_request(
             if isinstance(point, list) and len(point) == 2
         ]
         if len(geometry) >= 2:
-            routes.append(geometry)
+            routes.append((geometry, float(route.get("duration") or 0.0)))
     return routes
 
 
@@ -166,12 +175,13 @@ def _detour_waypoint(
 
 
 def _is_distinct(
-    candidate: list[tuple[float, float]], existing: list[list[tuple[float, float]]]
+    candidate: list[tuple[float, float]],
+    existing: list[tuple[list[tuple[float, float]], float]],
 ) -> bool:
     """Keep a route only if it is a materially different path."""
     length = _path_length_m(candidate)
-    for route in existing:
-        other = _path_length_m(route)
+    for geometry, _ in existing:
+        other = _path_length_m(geometry)
         if other and abs(length - other) / other < 0.05:
             return False
     return True
@@ -179,7 +189,7 @@ def _is_distinct(
 
 async def fetch_osrm_routes(
     origin: tuple[float, float], destination: tuple[float, float]
-) -> list[list[tuple[float, float]]]:
+) -> list[tuple[list[tuple[float, float]], float]]:
     """Walking routes from OSRM, or an empty list if it cannot be reached.
 
     OSRM returns alternatives only when it finds them, which is uncommon on
@@ -198,17 +208,17 @@ async def fetch_osrm_routes(
             if len(routes) >= 3:
                 break
             waypoint = _detour_waypoint(origin, destination, bend)
-            for candidate in await _osrm_request(
+            for candidate, duration in await _osrm_request(
                 client, [origin, waypoint, destination], alternatives=False
             ):
                 if _is_distinct(candidate, routes):
-                    routes.append(candidate)
+                    routes.append((candidate, duration))
     return routes
 
 
 def build_fallback_routes(
     origin: tuple[float, float], destination: tuple[float, float]
-) -> list[list[tuple[float, float]]]:
+) -> list[tuple[list[tuple[float, float]], float]]:
     """Bent lines between two points, used only when OSRM is unreachable.
 
     These ignore the street network and are never real walking directions.
@@ -226,23 +236,37 @@ def build_fallback_routes(
                     origin[1] + (destination[1] - origin[1]) * t + normal[1] * offset,
                 )
             )
-        routes.append(points)
+        # No service duration is available for a drawn line.
+        routes.append((points, 0.0))
     return routes
 
 
 def compare_routes(
-    candidates: list[list[tuple[float, float]]], clusters: list[Cluster]
-) -> tuple[list[ScoredRoute], str | None]:
-    """Score every candidate and pick a recommendation, or none."""
+    candidates: list[tuple[list[tuple[float, float]], float]],
+    clusters: list[Cluster],
+    travel_mode: TravelMode = WALKING,
+) -> tuple[list[ScoredRoute], str | None, str | None]:
+    """Score every candidate, name the least-exposed one, and recommend or not.
+
+    The least-exposed route is always named, because "nothing qualified" is a
+    poor answer on its own; recommending it is a separate, stricter decision.
+    """
     scored: list[ScoredRoute] = []
-    for index, geometry in enumerate(candidates):
+    for index, (geometry, service_duration_s) in enumerate(candidates):
         exposure, passed = score_route(geometry, clusters)
         distance = _path_length_m(geometry)
+        # Driving trusts the routing service's own timing; walking is derived,
+        # because that service has no pedestrian profile to time against.
+        duration_s = (
+            int(service_duration_s)
+            if travel_mode == DRIVING and service_duration_s > 0
+            else int(distance / WALKING_SPEED_MPS)
+        )
         scored.append(
             ScoredRoute(
                 id=f"route-{index + 1}",
                 role="fastest" if index == 0 else "alternative",
-                duration_s=int(distance / WALKING_SPEED_MPS),
+                duration_s=duration_s,
                 distance_m=round(distance, 1),
                 geometry=geometry,
                 exposure_score=exposure,
@@ -258,7 +282,7 @@ def compare_routes(
         )
 
     if not scored:
-        return [], None
+        return [], None, None
 
     fastest = min(scored, key=lambda route: route.duration_s)
     scored = [
@@ -270,10 +294,14 @@ def compare_routes(
         for route in scored
     ]
 
+    # The least-exposed option, reported whether or not it is worth a detour.
+    # Ties go to the quicker route.
+    least_exposed = min(scored, key=lambda route: (route.exposure_score, route.duration_s))
+
     # Nothing to avoid: the quickest way is also the one with no reported areas
-    # on it, so there is no case for walking further.
+    # on it, so there is no case for travelling further.
     if fastest.hotspots_passed == 0 or fastest.exposure_score < NEGLIGIBLE_EXPOSURE:
-        return scored, None
+        return scored, None, least_exposed.id
 
     allowance = max(MAX_EXTRA_SECONDS, int(fastest.duration_s * MAX_EXTRA_FRACTION))
     eligible = [
@@ -287,11 +315,12 @@ def compare_routes(
         and route.extra_duration_s <= allowance
     ]
     if not eligible:
-        # Recommending nothing is a valid answer, not a failure.
-        return scored, None
+        # Recommending nothing is a valid answer, not a failure: the caller
+        # still learns which route is least exposed and can decide for itself.
+        return scored, None, least_exposed.id
 
     best = min(eligible, key=lambda route: route.exposure_score)
     scored = [
         replace(route, role="lower-exposure") if route.id == best.id else route for route in scored
     ]
-    return scored, best.id
+    return scored, best.id, least_exposed.id

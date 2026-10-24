@@ -87,6 +87,7 @@ class SafetyMapService:
         origin: Coordinate,
         destination: Coordinate,
         time_period: TimePeriodFilter = "all",
+        travel_mode: str = "walking",
         window_days: int = DEFAULT_WINDOW_DAYS,
     ) -> RouteComparisonResponse:
         start = (origin.latitude, origin.longitude)
@@ -107,7 +108,7 @@ class SafetyMapService:
         if not candidates:
             candidates = build_fallback_routes(start, end)
 
-        scored, recommended = compare_routes(candidates, clusters)
+        scored, recommended, lowest_exposure = compare_routes(candidates, clusters, travel_mode)
         return RouteComparisonResponse(
             routes=[
                 Route(
@@ -128,6 +129,8 @@ class SafetyMapService:
                 for route in scored[:4]
             ],
             recommended_route_id=recommended,
+            lowest_exposure_route_id=lowest_exposure,
             evidence_level=overall_evidence(clusters),
+            travel_mode=travel_mode,
             uses_street_network=street_network,
         )

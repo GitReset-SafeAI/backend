@@ -112,7 +112,7 @@ def test_a_route_is_recommended_only_when_it_is_a_real_improvement():
     origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
     clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
 
-    routes, recommended = compare_routes(build_fallback_routes(origin, destination), clusters)
+    routes, recommended, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
 
     fastest = next(route for route in routes if route.role == "fastest")
     assert fastest.extra_duration_s == 0
@@ -172,7 +172,7 @@ def test_no_recommendation_when_the_fastest_route_passes_nothing():
     # A reported area far from every candidate: all routes score near zero.
     clusters, _ = find_hotspots([incident(6.95, 79.95) for _ in range(5)])
 
-    routes, recommended = compare_routes(build_fallback_routes(origin, destination), clusters)
+    routes, recommended, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
 
     assert all(route.hotspots_passed == 0 for route in routes)
     # Nothing to avoid, so no detour may be recommended.
@@ -183,7 +183,7 @@ def test_no_recommendation_for_a_negligible_exposure_difference():
     origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
     clusters, _ = find_hotspots([incident(6.9, 79.88) for _ in range(5)])
 
-    routes, recommended = compare_routes(build_fallback_routes(origin, destination), clusters)
+    routes, recommended, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
 
     fastest = next(route for route in routes if route.role == "fastest")
     if fastest.exposure_score < 5.0:
@@ -241,3 +241,50 @@ async def test_place_suggestions_have_unique_ids(monkeypatch):
     assert len(identifiers) == len(set(identifiers))
     # The exact repeat is dropped; the two distinct positions are both kept.
     assert len(results) == 2
+
+
+def test_the_least_exposed_route_is_named_even_without_a_recommendation():
+    origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
+    clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
+
+    routes, recommended, lowest = compare_routes(
+        build_fallback_routes(origin, destination), clusters
+    )
+
+    assert lowest is not None
+    least = next(route for route in routes if route.id == lowest)
+    # Whatever the recommendation decides, the named route really is the least
+    # exposed of those compared.
+    assert least.exposure_score == min(route.exposure_score for route in routes)
+    if recommended is not None:
+        assert recommended == lowest
+
+
+def test_driving_is_quicker_than_walking_over_the_same_roads():
+    # A service duration is supplied, as OSRM would.
+    candidates = [([(6.8872, 79.8597), (6.8910, 79.8570), (6.8951, 79.8541)], 120.0)]
+
+    walking, _, _ = compare_routes(candidates, [], "walking")
+    driving, _, _ = compare_routes(candidates, [], "driving")
+
+    # Walking time is derived from the distance; driving trusts the service.
+    assert driving[0].duration_s == 120
+    assert walking[0].duration_s > driving[0].duration_s
+    # The path is identical: only the timing differs.
+    assert walking[0].geometry == driving[0].geometry
+
+
+def test_route_comparison_states_its_travel_mode(client):
+    response = client.post(
+        "/api/v1/safety-map/routes/compare",
+        json={
+            "origin": {"latitude": 6.8872, "longitude": 79.8597},
+            "destination": {"latitude": 6.8951, "longitude": 79.8541},
+            "travel_mode": "driving",
+        },
+    )
+
+    body = response.json()
+    assert body["travel_mode"] == "driving"
+    # The caller is always told a pedestrian profile was not used.
+    assert body["pedestrian_profile_available"] is False

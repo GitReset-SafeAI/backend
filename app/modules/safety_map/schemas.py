@@ -111,6 +111,8 @@ class HotspotsResponse(BaseModel):
 
 RouteRole = Literal["fastest", "lower-exposure", "alternative"]
 
+TravelMode = Literal["walking", "driving"]
+
 
 class Route(BaseModel):
     id: str
@@ -133,6 +135,7 @@ class RouteComparisonRequest(BaseModel):
     origin: Coordinate
     destination: Coordinate
     time_period: TimePeriodFilter = "all"
+    travel_mode: TravelMode = "walking"
 
 
 class RouteComparisonResponse(BaseModel):
@@ -140,10 +143,19 @@ class RouteComparisonResponse(BaseModel):
     # None when no route meaningfully lowers exposure within an acceptable
     # detour. Recommending nothing is a valid answer, not a failure.
     recommended_route_id: str | None
+    # Always set when any route was found: the least-exposed option, named even
+    # when it does not clear the bar for a recommendation, so the caller is not
+    # left with only "nothing qualified".
+    lowest_exposure_route_id: str | None
     evidence_level: EvidenceLevel
+    travel_mode: TravelMode
     # False when the routing service could not be reached and the geometry is
-    # a straight-line approximation rather than real walking directions.
+    # a straight-line approximation rather than real directions.
     uses_street_network: bool
+    # The public routing service has only a car profile, so a walking route
+    # follows the road network and its time is derived from the distance. The
+    # app states this rather than implying a pedestrian route.
+    pedestrian_profile_available: bool = False
 
 
 class PlaceSuggestion(BaseModel):
