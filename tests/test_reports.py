@@ -222,7 +222,7 @@ def test_translate_before_inserting_and_preserve_report_fields(
         longitude=80.5,
         occurred_at="2026-10-23T19:00:00+05:30",
         lighting_condition="PARTIALLY_LIT",
-        crowd_level=None,
+        reported_time=None,
         current_safety_status=None,
     )
     with TestClient(application) as client:
@@ -409,7 +409,7 @@ def test_create_minimum_report(
     assert data_api.rows[0] == {**saved.model_dump(mode="json"), "user_id": str(REPORTER_ID)}
     assert set(response.json()) == set(ReportResponse.model_fields)
     assert "user_id" not in response.json()
-    for field in ("lighting_condition", "crowd_level", "current_safety_status"):
+    for field in ("lighting_condition", "reported_time", "current_safety_status"):
         assert response.json()[field] is None
         assert data_api.rows[0][field] is None
     assert all(client.is_closed for client in data_api.clients)
@@ -425,7 +425,7 @@ def test_create_report_with_every_field(
         longitude=80.5,
         occurred_at="2026-10-23T19:00:00+05:30",
         lighting_condition="PARTIALLY_LIT",
-        crowd_level="ALMOST_EMPTY",
+        reported_time="02:30",
         current_safety_status="MAY_STILL_BE_IN_DANGER",
     )
     with TestClient(application) as client:
@@ -444,7 +444,7 @@ def test_create_report_with_every_field(
         "submitted_at": saved.submitted_at.isoformat().replace("+00:00", "Z"),
         "RAPID_SUBMISSIONS": False,
     }
-    for name in ("lighting_condition", "crowd_level", "current_safety_status"):
+    for name in ("lighting_condition", "reported_time", "current_safety_status"):
         assert response.json()[name] == payload[name]
     selected = set(data_api.requests[0].url.params["select"].split(","))
     assert selected == set(ReportResponse.model_fields) | {"user_id"}
@@ -458,7 +458,7 @@ def test_explicit_nulls_are_stored(
         "longitude",
         "occurred_at",
         "lighting_condition",
-        "crowd_level",
+        "reported_time",
         "current_safety_status",
     )
     payload.update(dict.fromkeys(optional))
@@ -474,7 +474,7 @@ def test_explicit_nulls_are_stored(
     ("field", "value"),
     [
         ("lighting_condition", "invalid"),
-        ("crowd_level", "invalid"),
+        ("reported_time", "invalid"),
         ("current_safety_status", "invalid"),
         ("input_method", "audio"),
         ("language_hint", "unsupported"),
@@ -569,7 +569,7 @@ def test_storage_timeout_is_safe(
     [
         "latitude",
         "lighting_condition",
-        "crowd_level",
+        "reported_time",
         "current_safety_status",
         "id",
         "submitted_at",

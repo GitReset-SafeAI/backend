@@ -263,7 +263,7 @@ def test_verified_identity_and_report_ownership(
     response = auth.submit(
         token,
         lighting_condition="DAYLIGHT",
-        crowd_level="ALMOST_EMPTY",
+        reported_time="02:30",
         current_safety_status="MAY_STILL_BE_IN_DANGER",
     )
     assert response.status_code == 201
@@ -457,7 +457,8 @@ def test_expired_cache_refresh_and_optional_timing_claims(auth: AuthHarness) -> 
 
 
 @pytest.mark.parametrize(
-    "fields", [{}, {"lighting_condition": None, "crowd_level": None, "current_safety_status": None}]
+    "fields",
+    [{}, {"lighting_condition": None, "reported_time": None, "current_safety_status": None}],
 )
 def test_authenticated_minimum_and_null_context(
     auth: AuthHarness, fields: dict[str, object]
@@ -465,7 +466,7 @@ def test_authenticated_minimum_and_null_context(
     response = auth.submit(auth.token(), **fields)
     assert response.status_code == 201
     assert auth.rows[0]["user_id"] == USER_ID
-    for name in ("lighting_condition", "crowd_level", "current_safety_status"):
+    for name in ("lighting_condition", "reported_time", "current_safety_status"):
         assert response.json()[name] is None
         assert auth.rows[0][name] is None
 

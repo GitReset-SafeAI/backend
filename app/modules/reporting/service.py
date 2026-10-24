@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from app.modules.incident_ai.repository import AnalysisStorageError
 from app.modules.incident_ai.service import IncidentAnalysisService
+from app.modules.incident_ai.time_periods import normalize_reported_time
 from app.modules.reporting.transcription.translation import TranslationError
 from app.repositories.reports import ReportPersistenceError, ReportRepository
 from app.schemas.report import LanguageHint, ReportCreateRequest, ReportResponse, ReportSubmission
@@ -58,7 +59,9 @@ class ReportService:
                 "UNKNOWN_OR_PREFER_NOT_TO_SAY": "not_sure",
             }
             reported_time = None
-            if saved.occurred_at is not None:
+            if saved.reported_time is not None:
+                reported_time = normalize_reported_time(saved.reported_time)
+            elif saved.occurred_at is not None:
                 # Interpret the incident timestamp in the application's Sri Lankan locale.
                 local_time = saved.occurred_at.astimezone(timezone(timedelta(hours=5, minutes=30)))
                 hour = local_time.hour

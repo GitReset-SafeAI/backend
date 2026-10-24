@@ -60,3 +60,46 @@ def test_failed_report_insert_does_not_start_analysis() -> None:
     with pytest.raises(ReportPersistenceError):
         asyncio.run(service.create(request, OWNER))
     analyzer.analyze.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "raw_time,period",
+    [
+        ("02:30", "late_night"),
+        ("5 PM", "evening"),
+        ("morning", "morning"),
+        ("5.00", "not_sure"),
+    ],
+)
+def test_supplied_report_time_has_priority_over_timestamp(raw_time: str, period: str) -> None:
+    request = ReportCreateRequest(
+        original_text="The road was deserted and poorly lit. Nobody approached me.",
+        input_method="text",
+        language_hint="en",
+        reported_time=raw_time,
+        occurred_at="2026-10-24T12:00:00Z",
+        lighting_condition="POORLY_LIT_OR_DARK",
+    )
+    saved = ReportResponse(
+        **(request.model_dump() | {"translated_text": request.original_text}),
+        id=REPORT,
+        submitted_at="2026-10-24T13:00:00Z",
+    )
+    repository = AsyncMock()
+    repository.create.return_value = saved
+    analyzer = AsyncMock()
+    asyncio.run(ReportService(repository, AsyncMock(), analyzer).create(request, OWNER))
+    analyzer.analyze.assert_awaited_once_with(
+        saved.translated_text, REPORT, period, "poorly_lit_or_dark"
+    )
+    assert saved.reported_time == raw_time
+
+
+def test_removed_crowd_field_rejected() -> None:
+    with pytest.raises(ValueError):
+        ReportCreateRequest(
+            original_text="Synthetic report",
+            input_method="text",
+            language_hint="en",
+            crowd_level="ALMOST_EMPTY",
+        )

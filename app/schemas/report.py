@@ -8,6 +8,8 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
+from app.modules.incident_ai.time_periods import normalize_reported_time
+
 
 class InputMethod(StrEnum):
     """Supported report input methods."""
@@ -37,16 +39,6 @@ class LightingCondition(StrEnum):
     UNKNOWN_OR_PREFER_NOT_TO_SAY = "UNKNOWN_OR_PREFER_NOT_TO_SAY"
 
 
-class CrowdLevel(StrEnum):
-    """Optional, self-reported crowd levels."""
-
-    ALMOST_EMPTY = "ALMOST_EMPTY"
-    NOT_VERY_CROWDED = "NOT_VERY_CROWDED"
-    MODERATELY_CROWDED = "MODERATELY_CROWDED"
-    VERY_CROWDED = "VERY_CROWDED"
-    UNKNOWN_OR_PREFER_NOT_TO_SAY = "UNKNOWN_OR_PREFER_NOT_TO_SAY"
-
-
 class CurrentSafetyStatus(StrEnum):
     """User-reported safety when reporting; independent of AI assessments."""
 
@@ -71,14 +63,25 @@ class ReportSubmission(BaseModel):
     lighting_condition: LightingCondition | None = Field(
         default=None, description="Optional, self-reported incident lighting conditions."
     )
-    crowd_level: CrowdLevel | None = Field(
-        default=None, description="Optional, self-reported incident crowd level."
+    reported_time: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="Optional incident clock time, e.g. 02:30 or 5 PM, or a time-period category.",
     )
     current_safety_status: CurrentSafetyStatus | None = Field(
         default=None,
         description="Optional safety status when reporting, supplied by the user. "
         "This does not contact emergency services.",
     )
+
+    @field_validator("reported_time")
+    @classmethod
+    def validate_reported_time(cls, value: str | None) -> str | None:
+        if value is not None:
+            normalize_reported_time(value)
+            return value.strip()
+        return None
 
     @field_validator("original_text", "translated_text")
     @classmethod
