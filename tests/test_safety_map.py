@@ -6,7 +6,14 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.modules.safety_map.hotspots import find_hotspots
 from app.modules.safety_map.repository import EligibleIncident
-from app.modules.safety_map.routing import build_fallback_routes, compare_routes, score_route
+from app.modules.safety_map.routing import (
+    _haversine_m,
+    avoidance_waypoints,
+    build_fallback_routes,
+    clusters_containing,
+    compare_routes,
+    score_route,
+)
 from app.modules.safety_map.schemas import MIN_HOTSPOT_RADIUS_M, MIN_REPORTS_PER_HOTSPOT
 
 COLOMBO_BBOX = "79.80,6.80,79.95,6.96"
@@ -112,7 +119,7 @@ def test_a_route_is_recommended_only_when_it_is_a_real_improvement():
     origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
     clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
 
-    routes, recommended = compare_routes(build_fallback_routes(origin, destination), clusters)
+    routes, recommended, _, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
 
     fastest = next(route for route in routes if route.role == "fastest")
     assert fastest.extra_duration_s == 0
@@ -165,3 +172,189 @@ def test_place_search_returns_public_place_names_only(client, monkeypatch):
     for place in response.json():
         # A place is reference data; nothing about a report may ride along.
         assert set(place) == {"id", "name", "context", "coordinate"}
+
+
+def test_no_recommendation_when_the_fastest_route_passes_nothing():
+    origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
+    # A reported area far from every candidate: all routes score near zero.
+    clusters, _ = find_hotspots([incident(6.95, 79.95) for _ in range(5)])
+
+    routes, recommended, _, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
+
+    assert all(route.hotspots_passed == 0 for route in routes)
+    # Nothing to avoid, so no detour may be recommended.
+    assert recommended is None
+
+
+def test_no_recommendation_for_a_negligible_exposure_difference():
+    origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
+    clusters, _ = find_hotspots([incident(6.9, 79.88) for _ in range(5)])
+
+    routes, recommended, _, _ = compare_routes(build_fallback_routes(origin, destination), clusters)
+
+    fastest = next(route for route in routes if route.role == "fastest")
+    if fastest.exposure_score < 5.0:
+        assert recommended is None
+
+
+@pytest.mark.anyio
+async def test_place_suggestions_have_unique_ids(monkeypatch):
+    """Photon can repeat an OSM id, which breaks list rendering in the app."""
+    from app.modules.safety_map import places as places_module
+
+    repeated = {
+        "features": [
+            {
+                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
+                "geometry": {"coordinates": [79.85, 6.89]},
+            },
+            {
+                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
+                "geometry": {"coordinates": [79.86, 6.90]},
+            },
+            {
+                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
+                "geometry": {"coordinates": [79.85, 6.89]},
+            },
+        ]
+    }
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return repeated
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(places_module.httpx, "AsyncClient", FakeClient)
+    results = await places_module.search_places("galle road", 6)
+
+    identifiers = [place["id"] for place in results]
+    assert len(identifiers) == len(set(identifiers))
+    # The exact repeat is dropped; the two distinct positions are both kept.
+    assert len(results) == 2
+
+
+def test_the_least_exposed_route_is_named_even_without_a_recommendation():
+    origin, destination = (6.8872, 79.8597), (6.8951, 79.8541)
+    clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
+
+    routes, recommended, lowest, _ = compare_routes(
+        build_fallback_routes(origin, destination), clusters
+    )
+
+    assert lowest is not None
+    least = next(route for route in routes if route.id == lowest)
+    # Whatever the recommendation decides, the named route really is the least
+    # exposed of those compared.
+    assert least.exposure_score == min(route.exposure_score for route in routes)
+    if recommended is not None:
+        assert recommended == lowest
+
+
+def test_driving_is_quicker_than_walking_over_the_same_roads():
+    # A service duration is supplied, as OSRM would.
+    candidates = [([(6.8872, 79.8597), (6.8910, 79.8570), (6.8951, 79.8541)], 120.0)]
+
+    walking, _, _, _ = compare_routes(candidates, [], "walking")
+    driving, _, _, _ = compare_routes(candidates, [], "driving")
+
+    # Walking time is derived from the distance; driving trusts the service.
+    assert driving[0].duration_s == 120
+    assert walking[0].duration_s > driving[0].duration_s
+    # The path is identical: only the timing differs.
+    assert walking[0].geometry == driving[0].geometry
+
+
+def test_route_comparison_states_its_travel_mode(client):
+    response = client.post(
+        "/api/v1/safety-map/routes/compare",
+        json={
+            "origin": {"latitude": 6.8872, "longitude": 79.8597},
+            "destination": {"latitude": 6.8951, "longitude": 79.8541},
+            "travel_mode": "driving",
+        },
+    )
+
+    body = response.json()
+    assert body["travel_mode"] == "driving"
+    # The caller is always told a pedestrian profile was not used.
+    assert body["pedestrian_profile_available"] is False
+
+
+def test_a_clear_route_is_offered_however_long_it_is():
+    clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
+
+    direct = [(6.8872, 79.8597), (6.8905, 79.8565), (6.8951, 79.8541)]
+    # Far longer, but it enters no reported area.
+    long_way_round = [
+        (6.8872, 79.8597),
+        (6.8870, 79.8700),
+        (6.8960, 79.8700),
+        (6.8951, 79.8541),
+    ]
+
+    routes, _, _, clear = compare_routes([(direct, 0.0), (long_way_round, 0.0)], clusters)
+
+    assert clear is not None
+    offered = next(route for route in routes if route.id == clear)
+    assert offered.hotspots_passed == 0
+    assert offered.role == "avoids-all"
+    # The point of the feature: it is offered even though it takes much longer.
+    fastest = next(route for route in routes if route.role == "fastest")
+    assert offered.duration_s > fastest.duration_s
+
+
+def test_avoidance_waypoints_sit_clear_of_the_area_they_route_around():
+    clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
+    through = [(6.8872, 79.8597), (6.8905, 79.8565), (6.8951, 79.8541)]
+
+    waypoints = avoidance_waypoints(through, clusters)
+
+    assert waypoints
+    area = clusters[0]
+    for point in waypoints:
+        distance = _haversine_m(point, (area.latitude, area.longitude))
+        # Outside the area, not merely on its edge.
+        assert distance > area.radius_m
+
+
+def test_an_area_around_the_destination_is_not_counted_as_avoidable():
+    clusters, _ = find_hotspots([incident(6.8951, 79.8541) for _ in range(6)])
+    destination = (6.8951, 79.8541)
+
+    containing = clusters_containing(destination, clusters)
+
+    # You cannot route away from where you are going, so this area must not
+    # make every route look unavoidably exposed.
+    assert [cluster.id for cluster in containing] == [clusters[0].id]
+
+
+def test_avoidance_steps_off_the_road_rather_than_along_it():
+    clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
+    # A path running due north straight through the area.
+    northward = [(6.8860, 79.8565), (6.8905, 79.8565), (6.8950, 79.8565)]
+
+    east = avoidance_waypoints(northward, clusters, side=1)
+    west = avoidance_waypoints(northward, clusters, side=-1)
+
+    # Offsetting along the road would keep the same longitude and simply snap
+    # back onto it, so the step must be sideways and opposite on each side.
+    assert east and west
+    assert east[0][1] > 79.8565 > west[0][1]
+    assert abs(east[0][0] - 6.8905) < abs(east[0][1] - 79.8565)

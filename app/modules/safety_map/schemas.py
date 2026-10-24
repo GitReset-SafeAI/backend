@@ -109,7 +109,9 @@ class HotspotsResponse(BaseModel):
 # Route comparison is outside the required initial scope; it is contracted here
 # so it can be added without altering the hotspot response.
 
-RouteRole = Literal["fastest", "lower-exposure", "alternative"]
+RouteRole = Literal["fastest", "lower-exposure", "alternative", "avoids-all"]
+
+TravelMode = Literal["walking", "driving"]
 
 
 class Route(BaseModel):
@@ -133,6 +135,7 @@ class RouteComparisonRequest(BaseModel):
     origin: Coordinate
     destination: Coordinate
     time_period: TimePeriodFilter = "all"
+    travel_mode: TravelMode = "walking"
 
 
 class RouteComparisonResponse(BaseModel):
@@ -140,10 +143,27 @@ class RouteComparisonResponse(BaseModel):
     # None when no route meaningfully lowers exposure within an acceptable
     # detour. Recommending nothing is a valid answer, not a failure.
     recommended_route_id: str | None
+    # Always set when any route was found: the least-exposed option, named even
+    # when it does not clear the bar for a recommendation, so the caller is not
+    # left with only "nothing qualified".
+    lowest_exposure_route_id: str | None
+    # A route entering no reported area at all, when one was found. Offered
+    # however long it is: whether the extra time is worth it is the traveller's
+    # decision, not the service's.
+    clear_route_id: str | None
+    # A reported area around the start or the destination cannot be routed
+    # away from, so it is stated instead of being silently unavoidable.
+    origin_in_reported_area: bool = False
+    destination_in_reported_area: bool = False
     evidence_level: EvidenceLevel
+    travel_mode: TravelMode
     # False when the routing service could not be reached and the geometry is
-    # a straight-line approximation rather than real walking directions.
+    # a straight-line approximation rather than real directions.
     uses_street_network: bool
+    # The public routing service has only a car profile, so a walking route
+    # follows the road network and its time is derived from the distance. The
+    # app states this rather than implying a pedestrian route.
+    pedestrian_profile_available: bool = False
 
 
 class PlaceSuggestion(BaseModel):

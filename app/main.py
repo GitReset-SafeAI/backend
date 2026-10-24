@@ -20,6 +20,8 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if development else None,
         openapi_url="/openapi.json" if development else None,
     )
+    # One registration point, so adding a feature router cannot leave it
+    # mounted here and missing there. app/api/router.py holds the list.
     application.include_router(api_router, prefix="/api/v1")
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     return application

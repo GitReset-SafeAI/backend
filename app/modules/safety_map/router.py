@@ -83,7 +83,12 @@ async def compare_routes(
     service: Annotated[SafetyMapService, Depends(get_service)],
 ) -> RouteComparisonResponse:
     try:
-        return await service.compare(request.origin, request.destination, request.time_period)
+        return await service.compare(
+            request.origin,
+            request.destination,
+            request.time_period,
+            request.travel_mode,
+        )
     except MapDataError as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Routes could not be compared"

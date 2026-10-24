@@ -66,23 +66,34 @@ async def search_places(query: str, limit: int) -> list[dict]:
         raise PlaceLookupError("Place search is unavailable") from exc
 
     places = []
+    seen: set[str] = set()
     for feature in payload.get("features", []):
         properties = feature.get("properties") or {}
         coordinates = (feature.get("geometry") or {}).get("coordinates")
         name = properties.get("name")
         if not name or not isinstance(coordinates, list) or len(coordinates) != 2:
             continue
+
+        latitude, longitude = float(coordinates[1]), float(coordinates[0])
+        # A single OSM feature can come back more than once, so the OSM id
+        # alone is not unique. The position makes each suggestion distinct,
+        # and an exact repeat is dropped rather than listed twice.
+        identifier = (
+            f"{properties.get('osm_type', 'x')}{properties.get('osm_id', 'x')}"
+            f"-{latitude:.5f},{longitude:.5f}"
+        )
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+
         places.append(
             {
-                "id": f"{properties.get('osm_type', 'x')}{properties.get('osm_id', len(places))}",
+                "id": identifier,
                 "name": name,
                 "context": _context(properties),
                 # Photon returns [longitude, latitude]; the API boundary is the
                 # other way round.
-                "coordinate": {
-                    "latitude": float(coordinates[1]),
-                    "longitude": float(coordinates[0]),
-                },
+                "coordinate": {"latitude": latitude, "longitude": longitude},
             }
         )
     return places
