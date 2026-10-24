@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     supabase_anon_key: SecretStr = SecretStr("")
     supabase_service_role_key: SecretStr = SecretStr("")
     llm_api_key: SecretStr = SecretStr("")
+    llm_model: str = "gpt-4o-mini"
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_timeout_seconds: float = 30.0
 
 
 @lru_cache
