@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import httpx
@@ -12,6 +13,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from fastapi.testclient import TestClient
 
+from app.api.dependencies import get_report_analyzer
 from app.core.config import Settings, get_settings
 from app.core.security import (
     AuthenticatedUser,
@@ -221,6 +223,7 @@ def auth(
     from app.main import create_app
 
     app = create_app()
+    app.dependency_overrides[get_report_analyzer] = lambda: AsyncMock()
     app.dependency_overrides[get_settings] = lambda: harness.settings
     with TestClient(app) as client:
         harness.client = client

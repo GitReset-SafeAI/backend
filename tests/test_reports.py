@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import httpx
@@ -11,7 +12,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import require_verified_reporter_id
+from app.api.dependencies import get_report_analyzer, require_verified_reporter_id
 from app.core.config import Settings, get_settings
 from app.modules.reporting.transcription.translation import TranslationError
 from app.schemas.report import LanguageHint, ReportResponse, ReportSubmission
@@ -110,6 +111,7 @@ def application(monkeypatch: pytest.MonkeyPatch, data_api: MockDataAPI) -> FastA
 
     monkeypatch.setattr("app.api.dependencies.httpx.AsyncClient", mock_client)
     app = create_app()
+    app.dependency_overrides[get_report_analyzer] = lambda: AsyncMock()
     app.dependency_overrides[get_settings] = lambda: settings
     # Test-only trusted identity; production has no default or fake reporter.
     app.dependency_overrides[require_verified_reporter_id] = lambda: REPORTER_ID
@@ -124,6 +126,19 @@ def payload() -> dict[str, object]:
         "input_method": "text",
         "language_hint": "en",
     }
+
+
+def test_creation_automatically_analyzes_saved_report(
+    application: FastAPI, payload: dict[str, object]
+) -> None:
+    analyzer = AsyncMock()
+    application.dependency_overrides[get_report_analyzer] = lambda: analyzer
+    with TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert response.status_code == 201
+    analyzer.analyze.assert_awaited_once_with(
+        response.json()["translated_text"], UUID(response.json()["id"]), None, None
+    )
 
 
 @pytest.mark.parametrize("flag", [False, True])
