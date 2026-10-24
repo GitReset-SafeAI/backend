@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI
 
-from app.api.routes.health import router as health_router
+from app.api.router import router as api_router
 from app.core.config import get_settings
 
 
@@ -18,7 +18,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if development else None,
         openapi_url="/openapi.json" if development else None,
     )
-    application.include_router(health_router, prefix="/api/v1")
+    application.include_router(api_router, prefix="/api/v1")
     return application
 
 

@@ -75,12 +75,33 @@ without credentials or external network requests. CI runs the same checks.
 
 ## Project organisation and planned work
 
-`app/main.py` creates the application and registers versioned routers.
-`app/core` holds settings and future security utilities; `app/api` holds routes
-and reusable dependencies. `app/schemas`, `app/services`, `app/repositories`, and
-`app/utils` provide boundaries for shared schemas, business services, database
-access, and utilities as features are added. Supabase migrations belong in
-`supabase/migrations`; `seed.sql` currently inserts nothing.
+`app/main.py` creates the single application using `create_app()` and mounts
+`app/api/router.py` under `/api/v1`. The central router registers the health
+endpoint and the four feature routers. Feature routers are currently empty;
+no placeholder endpoints are exposed and feature URL paths remain undecided.
+
+| Module | Owner | Responsibilities |
+|---|---|---|
+| `app/modules/reporting` | Person 1 | Reporting, transcription, English translation, persistence, authentication integration, ownership, and privacy |
+| `app/modules/incident_ai` | Person 2 | Classification, provisional severity, confidence, extracted details, and AI-provider failure handling |
+| `app/modules/integrity` | Person 3 | Duplicate detection, suspicious patterns, anomaly flags, and moderation support |
+| `app/modules/safety_map` | Person 4 | Geospatial queries, hotspots, aggregated maps, and walking-route comparisons |
+
+Within each feature, `router.py` handles HTTP concerns, `schemas.py` holds
+module-local data models once agreed, `service.py` holds business logic, and
+`repository.py` handles persistence where needed. Other files mark focused
+feature responsibilities and contain only docstrings for now. Do not import
+another feature's internal implementation; agree on explicit interfaces before
+connecting modules. Shared report models, database schema, and inter-module
+contracts remain open for team agreement.
+
+`app/core` retains shared settings and security utilities and is the location for
+future application-wide error handling. `app/api/dependencies.py` remains the
+shared HTTP dependency location. The original empty `app/schemas`, `app/services`,
+`app/repositories`, and `app/utils` packages are preserved; feature work belongs
+in `app/modules`, and genuinely shared code should be coordinated with the team.
+Supabase migrations belong in `supabase/migrations`; there are no schema
+migrations yet and `seed.sql` inserts nothing.
 
 Reporting, language classification, severity assessment, anomaly detection,
 hotspot analysis, and route comparison are planned and unimplemented. No database
