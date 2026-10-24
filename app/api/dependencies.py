@@ -17,6 +17,8 @@ from app.core.security import (
     get_token_verifier,
 )
 from app.modules.reporting.service import ReportService
+from app.modules.reporting.transcription.provider import GroqTranscriber
+from app.modules.reporting.transcription.service import TranscriptionService
 from app.modules.reporting.transcription.translation import GroqReportTranslator
 from app.repositories.reports import ReportRepository
 
@@ -97,4 +99,20 @@ def get_report_service(
             base_url=settings.llm_base_url,
             timeout_seconds=settings.llm_timeout_seconds,
         ),
+    )
+
+
+def get_transcription_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> TranscriptionService:
+    """Draft transcription needs provider settings, never a persistence dependency."""
+    return TranscriptionService(
+        GroqTranscriber(
+            api_key=settings.groq_api_key.get_secret_value(),
+            model=settings.transcription_model,
+            base_url=settings.llm_base_url,
+            timeout_seconds=settings.transcription_timeout_seconds,
+        ),
+        max_bytes=settings.transcription_max_bytes,
+        max_duration=settings.transcription_max_duration_seconds,
     )

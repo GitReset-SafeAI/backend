@@ -31,6 +31,43 @@ The returned `ReportResponse` omits `user_id`. No public report listing or
 retrieval is implemented. Validation errors omit input values and context, and
 storage failures return a generic message without provider error details.
 
+## Draft voice transcription
+
+`POST /api/v1/reporting/transcriptions` requires the existing verified Supabase
+identity before consuming the raw audio body. It returns a draft for review and
+does not call report persistence, translation, classification, or account/NIC
+workflows. Drafts and recordings are not saved in Supabase or on disk by this
+feature. The final reviewed text is saved only after a separate report submission.
+The backend cannot independently prove human review occurred.
+
+WAV input is bounded to 10 MiB and 60 seconds, with a 30-second upload deadline
+and at most two active uploads/transcriptions per process. Audio is temporarily
+held in bounded application buffers and released on completion/failure; this is
+not a guarantee of physical memory erasure or a transport-level buffer bound.
+Unrelated container metadata is stripped before sending validated PCM audio to
+Groq. Only audio and necessary model/language/format parameters are sent: no
+account IDs, JWTs, coordinates, report IDs, or unrelated report context is added.
+
+Audio may nevertheless reveal a speaker's identity, sensitive details, or
+bystander speech. The transcript can contain these details too. User disclosure,
+appropriate consent, provider retention/data-location controls, and operational
+access must be agreed before real sensitive audio is sent. Backend non-retention
+does not establish provider non-retention; consult
+[Groq's current data policy](https://console.groq.com/docs/your-data) and the
+organization's actual controls. No provider settings are changed by this feature.
+
+Never log raw uploads, transcript text, authorization headers, credentials, or
+provider request/response bodies, including in middleware and error tracing.
+The API returns sanitized errors and never substitutes fabricated transcripts
+or retries automatically. Responses contain only the draft, requested hint, and
+`review_required: true`. They do not establish detected language, transcript
+accuracy, an incident's truth, or emergency-service contact. Digital silence is
+rejected, but non-speech noise may still produce plausible ASR text; user review
+remains necessary. Sinhala/Tamil/mixed-speech recognition and existing English
+translation accuracy require separate live evaluation with fictional recordings.
+
+## Text reporting and translation
+
 Report creation can send original incident text and the supplied language hint
 to the configured Groq provider for English translation. No account/user ID,
 JWT, coordinates, timestamps, or questionnaire fields are added to that request.

@@ -22,6 +22,11 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterat
         "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
         "LLM_API_KEY",
+        "GROQ_API_KEY",
+        "TRANSCRIPTION_MODEL",
+        "TRANSCRIPTION_TIMEOUT_SECONDS",
+        "TRANSCRIPTION_MAX_BYTES",
+        "TRANSCRIPTION_MAX_DURATION_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
     get_settings.cache_clear()
@@ -42,6 +47,7 @@ def test_defaults_without_credentials() -> None:
         "supabase_anon_key",
         "supabase_service_role_key",
         "llm_api_key",
+        "groq_api_key",
     ):
         secret = getattr(settings, field_name)
         assert isinstance(secret, SecretStr)
@@ -97,6 +103,7 @@ def test_secret_representations_are_masked(monkeypatch: pytest.MonkeyPatch) -> N
         "SUPABASE_ANON_KEY": "dummy-anon-value",
         "SUPABASE_SERVICE_ROLE_KEY": "dummy-service-role-value",
         "LLM_API_KEY": "dummy-llm-value",
+        "GROQ_API_KEY": "dummy-groq-value",
     }
     for name, value in dummy_secrets.items():
         monkeypatch.setenv(name, value)
@@ -187,3 +194,51 @@ def test_settings_cache_is_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert refreshed is not first
     assert refreshed.app_version == "0.3.0"
+
+
+def test_transcription_defaults_are_optional_and_separate() -> None:
+    settings = Settings()
+    assert settings.transcription_model == "whisper-large-v3"
+    assert settings.transcription_timeout_seconds == 30
+    assert settings.transcription_max_bytes == 10 * 1024 * 1024
+    assert settings.transcription_max_duration_seconds == 60
+    assert settings.groq_api_key.get_secret_value() == ""
+
+
+def test_transcription_settings_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name, value in {
+        "TRANSCRIPTION_MODEL": "dummy-speech-model",
+        "TRANSCRIPTION_TIMEOUT_SECONDS": "12.5",
+        "TRANSCRIPTION_MAX_BYTES": "1000000",
+        "TRANSCRIPTION_MAX_DURATION_SECONDS": "15",
+        "LLM_MODEL": "dummy-chat-model",
+        "GROQ_API_KEY": "dummy-groq-key",
+    }.items():
+        monkeypatch.setenv(name, value)
+    settings = Settings()
+    assert settings.transcription_model == "dummy-speech-model"
+    assert settings.llm_model == "dummy-chat-model"
+    assert settings.transcription_timeout_seconds == 12.5
+    assert settings.transcription_max_bytes == 1000000
+    assert settings.transcription_max_duration_seconds == 15
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("transcription_model", ""),
+        ("transcription_timeout_seconds", 0),
+        ("transcription_timeout_seconds", -1),
+        ("transcription_timeout_seconds", float("nan")),
+        ("transcription_timeout_seconds", float("inf")),
+        ("transcription_max_bytes", 0),
+        ("transcription_max_bytes", -1),
+        ("transcription_max_bytes", 10485761),
+        ("transcription_max_duration_seconds", 0),
+        ("transcription_max_duration_seconds", 60.1),
+        ("transcription_max_duration_seconds", float("inf")),
+    ],
+)
+def test_invalid_transcription_settings(field: str, value: object) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})

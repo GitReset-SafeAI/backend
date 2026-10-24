@@ -31,6 +31,46 @@ PAYLOAD = {
 }
 
 
+@pytest.mark.parametrize("role,status", [("authenticated", 200), ("anon", 403)])
+def test_transcription_uses_existing_jwt_gate_without_storage(
+    auth, wav_audio: bytes, role: str, status: int
+) -> None:
+    from app.api.dependencies import get_transcription_service
+    from app.modules.reporting.transcription.service import TranscriptionService
+
+    calls = []
+
+    class Provider:
+        async def transcribe(self, audio, language_hint):
+            calls.append((audio, language_hint.value))
+            return "Synthetic reviewed-later draft."
+
+    auth.client.app.dependency_overrides[get_transcription_service] = lambda: TranscriptionService(
+        Provider(), max_bytes=10485760, max_duration=60
+    )
+    response = auth.client.post(
+        "/api/v1/reporting/transcriptions?language_hint=si",
+        content=wav_audio,
+        headers={
+            "Content-Type": "audio/wav",
+            "Authorization": f"Bearer {auth.token({'role': role})}",
+        },
+    )
+    assert response.status_code == status
+    assert len(auth.jwks_requests) == 1
+    assert auth.storage_requests == auth.rows == []
+    if status == 200:
+        assert response.json() == {
+            "transcript": "Synthetic reviewed-later draft.",
+            "requested_language_hint": "si",
+            "review_required": True,
+        }
+        assert calls == [(wav_audio, "si")]
+    else:
+        assert response.json() == {"detail": "Permission denied."}
+        assert calls == []
+
+
 @pytest.fixture(scope="module")
 def signing_keys() -> dict[str, object]:
     return {

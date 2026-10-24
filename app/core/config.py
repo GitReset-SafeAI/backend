@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     llm_model: str = "openai/gpt-oss-20b"
     llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_timeout_seconds: float = 30.0
+    transcription_model: str = Field(default="whisper-large-v3", min_length=1)
+    transcription_timeout_seconds: float = Field(default=30.0, gt=0, allow_inf_nan=False)
+    transcription_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0, le=10 * 1024 * 1024)
+    transcription_max_duration_seconds: float = Field(
+        default=60.0, gt=0, le=60.0, allow_inf_nan=False
+    )
 
 
 @lru_cache

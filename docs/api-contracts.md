@@ -31,6 +31,102 @@ the shared redacted 422 detail-list response; authentication uses the existing
 eligibility and is not required for reporting. See
 [NIC classification](nic-classification.md) for synthetic examples and date rules.
 
+## Draft voice transcription: POST /api/v1/reporting/transcriptions
+
+This authenticated endpoint returns an editable draft only. It never creates a
+report or calls persistence, text translation, or incident classification. Reuse
+the normal Supabase bearer access token; no database secret is needed for this
+operation. JWT verification happens before the handler reads any audio bytes.
+
+Request:
+
+```http
+POST /api/v1/reporting/transcriptions?language_hint=si
+Authorization: Bearer <Supabase access token>
+Content-Type: audio/wav
+
+<raw binary PCM WAV bytes>
+```
+
+There is no JSON, multipart form, filename, audio URL, or account-ID input.
+`language_hint` accepts the shared `en`, `si`, `ta`, `si-Latn`, `mixed`, and
+`unknown` values and defaults to `unknown` when omitted.
+
+Accepted audio is little-endian RIFF/WAVE with PCM encoding tag 1, 16-bit samples,
+one or two channels, and a sample rate from 8000 through 48000 Hz. The initial
+limits are 10485760 bytes (10 MiB) and 60 seconds; both must be satisfied.
+Floating-point, compressed, WAVE_FORMAT_EXTENSIBLE, non-WAV, and other sample
+formats are unsupported. RIFF/chunk lengths, PCM byte rate, frame alignment,
+actual frame data, and duration are checked. Empty frames, truncated/inconsistent
+files, and digital silence are rejected. Digital silence detection does not prove
+that other audio contains speech; noise and background sounds can still confuse ASR.
+
+An incremental read checks the actual number of bytes, including uploads without
+`Content-Length` or with a falsely small value. A declared oversized length is
+rejected before reading. A supplied length that disagrees with the actual body is
+invalid. The application buffers only up to its byte limit; this does not impose
+a transport/proxy-level memory bound on individual ASGI receive messages. The
+upload deadline is 30 seconds. Two requests per process may occupy transcription
+slots, including upload, validation, and provider work; additional requests fail
+immediately with 503. Slots are released on failure, timeout, or cancellation.
+Multiple workers have separate limits; this is not a distributed or per-user quota.
+
+The service removes unrelated WAV metadata chunks and sends only canonical PCM
+audio and necessary parameters to Groq `/audio/transcriptions`, using HTTPX.
+No SDK, codec binary, or new dependency is required. Credentials/base URL come
+from `GROQ_API_KEY` and `LLM_BASE_URL`; the independent settings are:
+
+| Setting | Default | Validation |
+|---|---|---|
+| `TRANSCRIPTION_MODEL` | `whisper-large-v3` | Nonempty; whitespace-only values fail safely when used |
+| `TRANSCRIPTION_TIMEOUT_SECONDS` | `30` | Positive, finite seconds; bounds the complete provider operation |
+| `TRANSCRIPTION_MAX_BYTES` | `10485760` | Positive integer up to the approved 10 MiB ceiling |
+| `TRANSCRIPTION_MAX_DURATION_SECONDS` | `60` | Positive, finite seconds up to the approved 60-second ceiling |
+
+The timeout is enforced both through HTTPX and an overall async deadline.
+Provider response bodies are bounded to 65536 bytes; transcript text must be a
+nonblank string of at most 5000 characters. Nothing is silently truncated or
+retried. `LLM_MODEL` remains independent and is not used for speech recognition.
+
+Provider language mapping: `en` to `en`, `si` to `si`, `ta` to `ta`, and `si-Latn`
+to spoken Sinhala `si`. `mixed` and `unknown` omit a forced provider language.
+There is no guarantee of romanized Sinhala output, code-switch recognition, or
+detected language. Hints are requested metadata, not verified detection results.
+
+HTTP 200 synthetic response:
+
+```json
+{
+  "transcript": "කෙනෙක් මගේ පස්සෙන් ආවා.",
+  "requested_language_hint": "si",
+  "review_required": true
+}
+```
+
+Transcript text, including nonblank whitespace and Unicode, is returned unchanged.
+There is no saved-report ID, stored draft, audio location, or identity field.
+After reviewing/editing it, the user separately submits `POST /api/v1/reports`
+with `original_text` equal to the final reviewed text, `input_method: "voice"`,
+and the appropriate text-language hint. Omit `translated_text` to use existing
+server-side English preparation. A Sinhala-script transcript normally uses `si`;
+`si-Latn` describes final romanized text. This stateless endpoint cannot prove
+that a human reviewed the draft. Existing translation-quality limitations remain.
+
+| Status | Meaning / sanitized detail |
+|---|---|
+| `401`, `403` | Existing JWT credential/role rejection, before body consumption |
+| `413` | `Audio exceeds the permitted size or duration.` |
+| `415` | `Only audio/wav with supported 16-bit PCM audio is accepted.` |
+| `422` | `Audio is invalid or contains no usable speech.`; includes upload timeout/disconnection |
+| `422` | Invalid query hint uses the existing redacted validation detail list |
+| `503` | `Audio transcription is unavailable.`; includes capacity, missing credentials, provider HTTP/timeout errors, malformed JSON, missing/non-string text, and excessive output |
+| `503` | Existing authentication configuration/JWKS outages retain `Authentication is unavailable.` |
+
+All failures leave report storage untouched. Provider error bodies, tokens,
+credentials, audio bytes, and transcript contents are not included in errors/logs.
+The backend holds audio transiently in memory and does not write it to disk or
+Supabase. Provider retention is a separate policy question; see privacy guidance.
+
 ## Report creation: POST /api/v1/reports
 
 The route accepts `ReportCreateRequest` and returns the unchanged `ReportResponse`. Send
