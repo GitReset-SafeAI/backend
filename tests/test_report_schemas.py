@@ -411,7 +411,11 @@ def test_saved_report(response_data: dict[str, object]) -> None:
     assert report.lighting_condition is None
     assert report.crowd_level is None
     assert report.current_safety_status is None
-    assert set(report.model_dump()) == set(ReportSubmission.model_fields) | {"id", "submitted_at"}
+    assert set(report.model_dump()) == set(ReportSubmission.model_fields) | {
+        "id",
+        "submitted_at",
+        "RAPID_SUBMISSIONS",
+    }
     assert report.model_dump(mode="json")["submitted_at"] == "2026-10-23T04:30:00Z"
 
 

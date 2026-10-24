@@ -121,6 +121,7 @@ class ReportResponse(ReportSubmission):
 
     id: UUID
     submitted_at: AwareDatetime
+    RAPID_SUBMISSIONS: bool = Field(default=False, strict=True)
 
     @field_validator("submitted_at")
     @classmethod

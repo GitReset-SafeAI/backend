@@ -21,7 +21,7 @@ class ReportRepository:
         """Return a page of reports belonging to the verified user."""
         if not isinstance(reporter_id, UUID):
             raise ReportPersistenceError
-        fields = ("id", *ReportSubmission.model_fields, "submitted_at")
+        fields = ("id", *ReportSubmission.model_fields, "submitted_at", "RAPID_SUBMISSIONS")
         try:
             response = await self.client.get(
                 "reports",
@@ -83,7 +83,12 @@ class ReportRepository:
 
         payload = submission.model_dump(mode="json")
         payload["user_id"] = str(reporter_id)
-        response_fields = ("id", *ReportSubmission.model_fields, "submitted_at")
+        response_fields = (
+            "id",
+            *ReportSubmission.model_fields,
+            "submitted_at",
+            "RAPID_SUBMISSIONS",
+        )
         try:
             response = await self.client.post(
                 "reports",

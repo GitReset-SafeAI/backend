@@ -48,7 +48,12 @@ class MockDataAPI:
 
         payload = json.loads(request.content)
         assert "id" not in payload and "submitted_at" not in payload
-        row = {**payload, "id": str(uuid4()), "submitted_at": "2026-10-23T14:00:00Z"}
+        row = {
+            **payload,
+            "id": str(uuid4()),
+            "submitted_at": "2026-10-23T14:00:00Z",
+            "RAPID_SUBMISSIONS": False,
+        }
         self.rows.append(row.copy())
         row.update(self.row_override)
         if self.missing_field is not None:
@@ -119,6 +124,18 @@ def payload() -> dict[str, object]:
         "input_method": "text",
         "language_hint": "en",
     }
+
+
+@pytest.mark.parametrize("flag", [False, True])
+def test_creation_returns_saved_rapid_flag(
+    application: FastAPI, data_api: MockDataAPI, payload: dict[str, object], flag: bool
+) -> None:
+    data_api.row_override["RAPID_SUBMISSIONS"] = flag
+    with TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+    assert response.status_code == 201
+    assert response.json()["RAPID_SUBMISSIONS"] is flag
+    assert "RAPID_SUBMISSIONS" not in json.loads(data_api.requests[0].content)
 
 
 class FakeTranslator:
@@ -410,6 +427,7 @@ def test_create_report_with_every_field(
         "user_id": str(REPORTER_ID),
         "id": str(saved.id),
         "submitted_at": saved.submitted_at.isoformat().replace("+00:00", "Z"),
+        "RAPID_SUBMISSIONS": False,
     }
     for name in ("lighting_condition", "crowd_level", "current_safety_status"):
         assert response.json()[name] == payload[name]
