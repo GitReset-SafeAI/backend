@@ -3,6 +3,12 @@
 The running development application exposes Swagger UI at `/docs` and its OpenAPI
 schema at `/openapi.json`. Versioned endpoints use the `/api/v1` prefix.
 
+`app/main.py` mounts the central `app/api/router.py`, which registers health and
+the `reporting`, `incident_ai`, `integrity`, and `safety_map` feature routers.
+Feature routers live in `app/modules/<feature>/router.py` and currently expose
+no endpoints. Their URL paths, shared schemas, and inter-module interfaces remain
+undecided; the module structure does not define new API contracts.
+
 ## Current endpoint
 
 `GET /api/v1/health` requires no credentials and returns HTTP 200:
