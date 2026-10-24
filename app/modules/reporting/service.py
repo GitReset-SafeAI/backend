@@ -51,32 +51,34 @@ class ReportService:
             raise TranslationError from None
         saved = await self._repository.create(submission, reporter_id)
         if self._analyzer is not None:
-            lighting = {
-                "WELL_LIT": "well_lit",
-                "PARTIALLY_LIT": "partially_lit",
-                "POORLY_LIT_OR_DARK": "poorly_lit_or_dark",
-                "DAYLIGHT": "day_light",
-                "UNKNOWN_OR_PREFER_NOT_TO_SAY": "not_sure",
-            }
-            reported_time = None
-            if saved.reported_time is not None:
-                reported_time = normalize_reported_time(saved.reported_time)
-            elif saved.occurred_at is not None:
-                # Interpret the incident timestamp in the application's Sri Lankan locale.
-                local_time = saved.occurred_at.astimezone(timezone(timedelta(hours=5, minutes=30)))
-                hour = local_time.hour
-                reported_time = (
-                    "late_night"
-                    if hour < 5
-                    else "morning"
-                    if hour < 12
-                    else "afternoon"
-                    if hour < 17
-                    else "evening"
-                    if hour < 21
-                    else "night"
-                )
             try:
+                lighting = {
+                    "WELL_LIT": "well_lit",
+                    "PARTIALLY_LIT": "partially_lit",
+                    "POORLY_LIT_OR_DARK": "poorly_lit_or_dark",
+                    "DAYLIGHT": "day_light",
+                    "UNKNOWN_OR_PREFER_NOT_TO_SAY": "not_sure",
+                }
+                reported_time = None
+                if saved.reported_time is not None:
+                    reported_time = normalize_reported_time(saved.reported_time)
+                elif saved.occurred_at is not None:
+                    # Interpret the incident timestamp in the application's Sri Lankan locale.
+                    local_time = saved.occurred_at.astimezone(
+                        timezone(timedelta(hours=5, minutes=30))
+                    )
+                    hour = local_time.hour
+                    reported_time = (
+                        "late_night"
+                        if hour < 5
+                        else "morning"
+                        if hour < 12
+                        else "afternoon"
+                        if hour < 17
+                        else "evening"
+                        if hour < 21
+                        else "night"
+                    )
                 await self._analyzer.analyze(
                     saved.translated_text,
                     saved.id,
@@ -88,5 +90,10 @@ class ReportService:
                 # by claiming creation failed, and never log private report content.
                 logging.getLogger(__name__).warning(
                     "Automatic incident analysis could not be saved"
+                )
+            except Exception:
+                # Only post-save analysis is best effort; never include exception data.
+                logging.getLogger(__name__).warning(
+                    "Automatic incident analysis failed after report persistence"
                 )
         return saved
