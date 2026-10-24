@@ -188,3 +188,56 @@ def test_no_recommendation_for_a_negligible_exposure_difference():
     fastest = next(route for route in routes if route.role == "fastest")
     if fastest.exposure_score < 5.0:
         assert recommended is None
+
+
+@pytest.mark.anyio
+async def test_place_suggestions_have_unique_ids(monkeypatch):
+    """Photon can repeat an OSM id, which breaks list rendering in the app."""
+    from app.modules.safety_map import places as places_module
+
+    repeated = {
+        "features": [
+            {
+                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
+                "geometry": {"coordinates": [79.85, 6.89]},
+            },
+            {
+                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
+                "geometry": {"coordinates": [79.86, 6.90]},
+            },
+            {
+                "properties": {"osm_type": "W", "osm_id": 27712654, "name": "Galle Road"},
+                "geometry": {"coordinates": [79.85, 6.89]},
+            },
+        ]
+    }
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return repeated
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(places_module.httpx, "AsyncClient", FakeClient)
+    results = await places_module.search_places("galle road", 6)
+
+    identifiers = [place["id"] for place in results]
+    assert len(identifiers) == len(set(identifiers))
+    # The exact repeat is dropped; the two distinct positions are both kept.
+    assert len(results) == 2
