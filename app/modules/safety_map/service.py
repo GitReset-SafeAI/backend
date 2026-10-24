@@ -7,6 +7,7 @@ from app.modules.safety_map.repository import MapDataError, build_repository
 from app.modules.safety_map.routing import (
     avoidance_waypoints,
     build_fallback_routes,
+    clusters_containing,
     compare_routes,
     fetch_osrm_routes,
     fetch_route_via,
@@ -94,6 +95,37 @@ class SafetyMapService:
             ],
         )
 
+    async def _find_clear_route(
+        self,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        candidates: list[tuple[list[tuple[float, float]], float]],
+        clusters: list[Cluster],
+    ) -> tuple[list[tuple[float, float]], float] | None:
+        """Route around the reported areas, widening the berth if that is not enough.
+
+        Steering clear of one area can push a path into another, so each
+        attempt starts from the previous result and gives the areas a wider
+        berth. A few attempts, then give up: a clear route may simply not
+        exist, which is an honest answer.
+        """
+        attempt = min(candidates, key=lambda candidate: _path_length(candidate[0]))
+        for clearance in (1.5, 3.0, 5.0):
+            # Either side of the road: one of them may be the sea, a river, or
+            # simply nothing to drive on.
+            for side in (1, -1):
+                waypoints = avoidance_waypoints(
+                    attempt[0], clusters, clearance_factor=clearance, side=side
+                )
+                if not waypoints:
+                    return None
+                detour = await fetch_route_via(start, waypoints, end)
+                if detour is None:
+                    continue
+                if not score_route(detour[0], clusters)[1]:
+                    return detour
+        return None
+
     async def compare(
         self,
         origin: Coordinate,
@@ -115,6 +147,13 @@ class SafetyMapService:
         except MapDataError:
             clusters = []
 
+        # An area around the start or the destination cannot be avoided, so it
+        # is excluded from the search and reported to the caller instead.
+        at_origin = clusters_containing(start, clusters)
+        at_destination = clusters_containing(end, clusters)
+        unavoidable = {cluster.id for cluster in at_origin + at_destination}
+        avoidable = [cluster for cluster in clusters if cluster.id not in unavoidable]
+
         candidates = await fetch_osrm_routes(start, end)
         street_network = bool(candidates)
         if not candidates:
@@ -123,17 +162,17 @@ class SafetyMapService:
         # If every candidate runs through a reported area, ask the street
         # network for one that goes round them. It may be much longer; that is
         # the traveller's call, so it is offered rather than filtered out.
-        if street_network and all(
-            score_route(geometry, clusters)[1] for geometry, _ in candidates
+        if (
+            street_network
+            and avoidable
+            and all(score_route(geometry, avoidable)[1] for geometry, _ in candidates)
         ):
-            quickest = min(candidates, key=lambda candidate: _path_length(candidate[0]))
-            waypoints = avoidance_waypoints(quickest[0], clusters)
-            detour = await fetch_route_via(start, waypoints, end)
-            if detour is not None and not score_route(detour[0], clusters)[1]:
+            detour = await self._find_clear_route(start, end, candidates, avoidable)
+            if detour is not None:
                 candidates = [*candidates, detour]
 
         scored, recommended, lowest_exposure, clear = compare_routes(
-            candidates, clusters, travel_mode
+            candidates, clusters, travel_mode, avoidable
         )
         return RouteComparisonResponse(
             routes=[
@@ -157,6 +196,8 @@ class SafetyMapService:
             recommended_route_id=recommended,
             lowest_exposure_route_id=lowest_exposure,
             clear_route_id=clear,
+            origin_in_reported_area=bool(at_origin),
+            destination_in_reported_area=bool(at_destination),
             evidence_level=overall_evidence(clusters),
             travel_mode=travel_mode,
             uses_street_network=street_network,

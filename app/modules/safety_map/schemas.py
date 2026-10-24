@@ -151,6 +151,10 @@ class RouteComparisonResponse(BaseModel):
     # however long it is: whether the extra time is worth it is the traveller's
     # decision, not the service's.
     clear_route_id: str | None
+    # A reported area around the start or the destination cannot be routed
+    # away from, so it is stated instead of being silently unavoidable.
+    origin_in_reported_area: bool = False
+    destination_in_reported_area: bool = False
     evidence_level: EvidenceLevel
     travel_mode: TravelMode
     # False when the routing service could not be reached and the geometry is

@@ -10,6 +10,7 @@ from app.modules.safety_map.routing import (
     _haversine_m,
     avoidance_waypoints,
     build_fallback_routes,
+    clusters_containing,
     compare_routes,
     score_route,
 )
@@ -331,3 +332,29 @@ def test_avoidance_waypoints_sit_clear_of_the_area_they_route_around():
         distance = _haversine_m(point, (area.latitude, area.longitude))
         # Outside the area, not merely on its edge.
         assert distance > area.radius_m
+
+
+def test_an_area_around_the_destination_is_not_counted_as_avoidable():
+    clusters, _ = find_hotspots([incident(6.8951, 79.8541) for _ in range(6)])
+    destination = (6.8951, 79.8541)
+
+    containing = clusters_containing(destination, clusters)
+
+    # You cannot route away from where you are going, so this area must not
+    # make every route look unavoidably exposed.
+    assert [cluster.id for cluster in containing] == [clusters[0].id]
+
+
+def test_avoidance_steps_off_the_road_rather_than_along_it():
+    clusters, _ = find_hotspots([incident(6.8905, 79.8565) for _ in range(6)])
+    # A path running due north straight through the area.
+    northward = [(6.8860, 79.8565), (6.8905, 79.8565), (6.8950, 79.8565)]
+
+    east = avoidance_waypoints(northward, clusters, side=1)
+    west = avoidance_waypoints(northward, clusters, side=-1)
+
+    # Offsetting along the road would keep the same longitude and simply snap
+    # back onto it, so the step must be sideways and opposite on each side.
+    assert east and west
+    assert east[0][1] > 79.8565 > west[0][1]
+    assert abs(east[0][0] - 6.8905) < abs(east[0][1] - 79.8565)

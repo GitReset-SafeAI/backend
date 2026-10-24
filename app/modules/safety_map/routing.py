@@ -249,38 +249,42 @@ def avoidance_waypoints(
     geometry: list[tuple[float, float]],
     clusters: list[Cluster],
     max_points: int = 3,
+    clearance_factor: float = 2.0,
+    side: int = 1,
 ) -> list[tuple[float, float]]:
     """Points to route through so a path clears every reported area it meets.
 
-    For each area the path enters, a waypoint is placed on the far side of it,
-    away from where the path currently runs. Routing through those points lets
-    the street network find a way round rather than guessing one.
+    The offset is perpendicular to the path's own direction, not along the line
+    from the area's centre. Offsetting the latter way pushes the waypoint
+    further down the same street when a road runs through an area, and the
+    routing service simply snaps it back onto that road. `side` picks which
+    way to step off it; both are worth trying, since one may be the sea.
     """
     waypoints: list[tuple[float, float]] = []
     for cluster in clusters:
         centre = (cluster.latitude, cluster.longitude)
-        nearest = min(geometry, key=lambda point: _haversine_m(point, centre))
-        if _haversine_m(nearest, centre) > cluster.radius_m:
+        index = min(range(len(geometry)), key=lambda i: _haversine_m(geometry[i], centre))
+        if _haversine_m(geometry[index], centre) > cluster.radius_m:
             continue
 
-        north = nearest[0] - centre[0]
-        east = nearest[1] - centre[1]
-        norm = float(np.hypot(north, east))
+        # Local heading, from the points either side of the closest approach.
+        before = geometry[max(0, index - 1)]
+        after = geometry[min(len(geometry) - 1, index + 1)]
+        heading = (after[0] - before[0], after[1] - before[1])
+        norm = float(np.hypot(*heading))
         if norm == 0:
-            # The path runs through the centre, so either side will do.
-            north, east, norm = 1.0, 0.0, 1.0
+            heading, norm = (1.0, 0.0), 1.0
+        # Rotate the heading a quarter turn to step off the road.
+        perpendicular = (-heading[1] / norm, heading[0] / norm)
 
-        # Far enough out that the route leaves the area rather than skirting it.
-        clearance_m = cluster.radius_m * 2.0 + 200.0
+        clearance_m = cluster.radius_m * clearance_factor + 200.0
         d_lat, d_lon = _metres_to_degrees(
-            centre[0], (north / norm) * clearance_m, (east / norm) * clearance_m
+            centre[0],
+            perpendicular[0] * clearance_m * side,
+            perpendicular[1] * clearance_m * side,
         )
         waypoints.append((centre[0] + d_lat, centre[1] + d_lon))
 
-    # Keep them in the order the path meets them, so the detour stays sensible.
-    waypoints.sort(
-        key=lambda point: min(range(len(geometry)), key=lambda i: _haversine_m(geometry[i], point))
-    )
     return waypoints[:max_points]
 
 
@@ -299,10 +303,24 @@ async def fetch_route_via(
     return routes[0] if routes else None
 
 
+def clusters_containing(point: tuple[float, float], clusters: list[Cluster]) -> list[Cluster]:
+    """Areas the given point sits inside.
+
+    An area around a journey's own start or end cannot be routed away from, so
+    it is not counted against a route that is otherwise clear.
+    """
+    return [
+        cluster
+        for cluster in clusters
+        if _haversine_m(point, (cluster.latitude, cluster.longitude)) <= cluster.radius_m
+    ]
+
+
 def compare_routes(
     candidates: list[tuple[list[tuple[float, float]], float]],
     clusters: list[Cluster],
     travel_mode: TravelMode = WALKING,
+    avoidable: list[Cluster] | None = None,
 ) -> tuple[list[ScoredRoute], str | None, str | None, str | None]:
     """Score every candidate and name the useful ones.
 
@@ -363,7 +381,18 @@ def compare_routes(
     # A route that enters no reported area at all. Deliberately not subject to
     # the detour allowance: how much longer is worth it is the traveller's
     # call, not this function's.
-    clear_routes = [route for route in scored if route.hotspots_passed == 0]
+    # "Clear" means clear of the areas a route could actually avoid. An area
+    # around the start or the destination is not one of them.
+    avoidable_set = clusters if avoidable is None else avoidable
+    clear_routes = [
+        route
+        for route, (_, passed) in zip(
+            scored,
+            [score_route(geometry, avoidable_set) for geometry, _ in candidates],
+            strict=True,
+        )
+        if not passed
+    ]
     clear = min(clear_routes, key=lambda route: route.duration_s) if clear_routes else None
 
     def mark(routes: list[ScoredRoute], route_id: str | None, role: str) -> list[ScoredRoute]:
