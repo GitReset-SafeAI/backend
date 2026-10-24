@@ -36,14 +36,27 @@ storage failures return a generic message without provider error details.
 `POST /api/v1/reporting/transcriptions` requires the existing verified Supabase
 identity before consuming the raw audio body. It returns a draft for review and
 does not call report persistence, translation, classification, or account/NIC
-workflows. Drafts and recordings are not saved in Supabase or on disk by this
-feature. The final reviewed text is saved only after a separate report submission.
+workflows. Drafts and recordings are not saved in Supabase. Compressed recordings
+use private, request-scoped temporary files, removed before the provider request
+and on validation failure, timeout, or cancellation. WAV and converted PCM stay
+in bounded memory. No persistent audio archive is created. The final reviewed
+text is saved only after a separate report submission.
 The backend cannot independently prove human review occurred.
 
-WAV input is bounded to 10 MiB and 60 seconds, with a 30-second upload deadline
-and at most two active uploads/transcriptions per process. Audio is temporarily
+All supported input is bounded to 10 MiB and 60 seconds, with a 30-second upload
+deadline, a separate 15-second probe/conversion deadline, and at most two active
+uploads/conversions/transcriptions per process. Audio is temporarily
 held in bounded application buffers and released on completion/failure; this is
 not a guarantee of physical memory erasure or a transport-level buffer bound.
+Temporary files inherit the backend account's private temporary-directory access.
+Deploy with a restricted service account and private, preferably encrypted or
+memory-backed temporary storage; exclude it from backups and request tracing.
+Normal cleanup is not guaranteed after power loss or forced process termination:
+apply an operational stale-file cleanup policy without touching active requests.
+Deleting a temporary file does not guarantee forensic erasure. MP4 uploads can
+temporarily contain video bytes, although video frames are never decoded or
+forwarded; prefer audio-only recordings. Keep FFmpeg patched: format/codec/protocol
+restrictions, deadlines, and allocation limits do not sandbox a native-code parser.
 Unrelated container metadata is stripped before sending validated PCM audio to
 Groq. Only audio and necessary model/language/format parameters are sent: no
 account IDs, JWTs, coordinates, report IDs, or unrelated report context is added.

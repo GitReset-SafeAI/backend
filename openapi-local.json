@@ -1,0 +1,1618 @@
+{
+    "openapi":  "3.1.0",
+    "info":  {
+                 "title":  "SafeRoute AI Backend",
+                 "description":  "Backend foundation for harassment reporting and travel safety in Sri Lanka.",
+                 "version":  "0.1.0"
+             },
+    "paths":  {
+                  "/api/v1/health":  {
+                                         "get":  {
+                                                     "tags":  [
+                                                                  "health"
+                                                              ],
+                                                     "summary":  "Health",
+                                                     "description":  "Report process health without probing database or AI services.",
+                                                     "operationId":  "health_api_v1_health_get",
+                                                     "responses":  {
+                                                                       "200":  {
+                                                                                   "description":  "Successful Response",
+                                                                                   "content":  {
+                                                                                                   "application/json":  {
+                                                                                                                            "schema":  {
+                                                                                                                                           "$ref":  "#/components/schemas/HealthResponse"
+                                                                                                                                       }
+                                                                                                                        }
+                                                                                               }
+                                                                               }
+                                                                   }
+                                                 }
+                                     },
+                  "/api/v1/authentication/nic-classification":  {
+                                                                    "post":  {
+                                                                                 "tags":  [
+                                                                                              "authentication"
+                                                                                          ],
+                                                                                 "summary":  "Classify Nic Number",
+                                                                                 "description":  "Parse the NIC gender indicator locally. Does not verify identity or eligibility.",
+                                                                                 "operationId":  "classify_nic_number_api_v1_authentication_nic_classification_post",
+                                                                                 "requestBody":  {
+                                                                                                     "content":  {
+                                                                                                                     "application/json":  {
+                                                                                                                                              "schema":  {
+                                                                                                                                                             "$ref":  "#/components/schemas/NICClassificationRequest"
+                                                                                                                                                         }
+                                                                                                                                          }
+                                                                                                                 },
+                                                                                                     "required":  true
+                                                                                                 },
+                                                                                 "responses":  {
+                                                                                                   "200":  {
+                                                                                                               "description":  "Successful Response",
+                                                                                                               "content":  {
+                                                                                                                               "application/json":  {
+                                                                                                                                                        "schema":  {
+                                                                                                                                                                       "$ref":  "#/components/schemas/NICClassificationResponse"
+                                                                                                                                                                   }
+                                                                                                                                                    }
+                                                                                                                           }
+                                                                                                           },
+                                                                                                   "401":  {
+                                                                                                               "description":  "Missing or invalid bearer access token."
+                                                                                                           },
+                                                                                                   "403":  {
+                                                                                                               "description":  "Verified token lacks the authenticated-user role."
+                                                                                                           },
+                                                                                                   "503":  {
+                                                                                                               "description":  "Authentication is unavailable."
+                                                                                                           },
+                                                                                                   "422":  {
+                                                                                                               "description":  "Validation Error",
+                                                                                                               "content":  {
+                                                                                                                               "application/json":  {
+                                                                                                                                                        "schema":  {
+                                                                                                                                                                       "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                                   }
+                                                                                                                                                    }
+                                                                                                                           }
+                                                                                                           }
+                                                                                               },
+                                                                                 "security":  [
+                                                                                                  {
+                                                                                                      "HTTPBearer":  [
+
+                                                                                                                     ]
+                                                                                                  }
+                                                                                              ]
+                                                                             }
+                                                                },
+                  "/api/v1/reports":  {
+                                          "post":  {
+                                                       "tags":  [
+                                                                    "reports"
+                                                                ],
+                                                       "summary":  "Create Report",
+                                                       "description":  "Create a privately owned report using a verified Supabase bearer access token.",
+                                                       "operationId":  "create_report_api_v1_reports_post",
+                                                       "requestBody":  {
+                                                                           "content":  {
+                                                                                           "application/json":  {
+                                                                                                                    "schema":  {
+                                                                                                                                   "$ref":  "#/components/schemas/ReportCreateRequest"
+                                                                                                                               }
+                                                                                                                }
+                                                                                       },
+                                                                           "required":  true
+                                                                       },
+                                                       "responses":  {
+                                                                         "201":  {
+                                                                                     "description":  "Successful Response",
+                                                                                     "content":  {
+                                                                                                     "application/json":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "$ref":  "#/components/schemas/ReportResponse"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                 }
+                                                                                 },
+                                                                         "401":  {
+                                                                                     "description":  "Missing or invalid bearer access token."
+                                                                                 },
+                                                                         "403":  {
+                                                                                     "description":  "Verified token lacks the authenticated-user role."
+                                                                                 },
+                                                                         "503":  {
+                                                                                     "description":  "Authentication, translation, or report storage is unavailable."
+                                                                                 },
+                                                                         "422":  {
+                                                                                     "description":  "Validation Error",
+                                                                                     "content":  {
+                                                                                                     "application/json":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                 }
+                                                                                 }
+                                                                     },
+                                                       "security":  [
+                                                                        {
+                                                                            "HTTPBearer":  [
+
+                                                                                           ]
+                                                                        }
+                                                                    ]
+                                                   }
+                                      },
+                  "/api/v1/reporting/transcriptions":  {
+                                                           "post":  {
+                                                                        "tags":  [
+                                                                                     "reporting"
+                                                                                 ],
+                                                                        "summary":  "Transcribe Audio",
+                                                                        "description":  "Resolve authentication before manually consuming the raw request stream.",
+                                                                        "operationId":  "transcribe_audio_api_v1_reporting_transcriptions_post",
+                                                                        "security":  [
+                                                                                         {
+                                                                                             "HTTPBearer":  [
+
+                                                                                                            ]
+                                                                                         }
+                                                                                     ],
+                                                                        "parameters":  [
+                                                                                           {
+                                                                                               "name":  "language_hint",
+                                                                                               "in":  "query",
+                                                                                               "required":  false,
+                                                                                               "schema":  {
+                                                                                                              "$ref":  "#/components/schemas/LanguageHint",
+                                                                                                              "default":  "unknown"
+                                                                                                          }
+                                                                                           }
+                                                                                       ],
+                                                                        "responses":  {
+                                                                                          "200":  {
+                                                                                                      "description":  "Successful Response",
+                                                                                                      "content":  {
+                                                                                                                      "application/json":  {
+                                                                                                                                               "schema":  {
+                                                                                                                                                              "$ref":  "#/components/schemas/TranscriptionResponse"
+                                                                                                                                                          }
+                                                                                                                                           }
+                                                                                                                  }
+                                                                                                  },
+                                                                                          "401":  {
+                                                                                                      "description":  "Missing or invalid bearer access token."
+                                                                                                  },
+                                                                                          "403":  {
+                                                                                                      "description":  "Verified token lacks the authenticated-user role."
+                                                                                                  },
+                                                                                          "413":  {
+                                                                                                      "description":  "Audio exceeds permitted size or duration."
+                                                                                                  },
+                                                                                          "415":  {
+                                                                                                      "description":  "Unsupported audio media type or WAV encoding."
+                                                                                                  },
+                                                                                          "422":  {
+                                                                                                      "description":  "Invalid audio, language hint, or no usable speech."
+                                                                                                  },
+                                                                                          "503":  {
+                                                                                                      "description":  "Authentication, transcription, or capacity is unavailable."
+                                                                                                  }
+                                                                                      },
+                                                                        "requestBody":  {
+                                                                                            "required":  true,
+                                                                                            "content":  {
+                                                                                                            "audio/wav":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "type":  "string",
+                                                                                                                                             "format":  "binary"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                        }
+                                                                                        }
+                                                                    }
+                                                       },
+                  "/api/v1/incident-ai/analyses":  {
+                                                       "get":  {
+                                                                   "tags":  [
+                                                                                "incident_ai"
+                                                                            ],
+                                                                   "summary":  "List Analyses",
+                                                                   "description":  "Retrieve all stored columns, newest first; increase offset for subsequent pages.",
+                                                                   "operationId":  "list_analyses_api_v1_incident_ai_analyses_get",
+                                                                   "parameters":  [
+                                                                                      {
+                                                                                          "name":  "limit",
+                                                                                          "in":  "query",
+                                                                                          "required":  false,
+                                                                                          "schema":  {
+                                                                                                         "type":  "integer",
+                                                                                                         "maximum":  1000,
+                                                                                                         "minimum":  1,
+                                                                                                         "default":  100,
+                                                                                                         "title":  "Limit"
+                                                                                                     }
+                                                                                      },
+                                                                                      {
+                                                                                          "name":  "offset",
+                                                                                          "in":  "query",
+                                                                                          "required":  false,
+                                                                                          "schema":  {
+                                                                                                         "type":  "integer",
+                                                                                                         "minimum":  0,
+                                                                                                         "default":  0,
+                                                                                                         "title":  "Offset"
+                                                                                                     }
+                                                                                      }
+                                                                                  ],
+                                                                   "responses":  {
+                                                                                     "200":  {
+                                                                                                 "description":  "Successful Response",
+                                                                                                 "content":  {
+                                                                                                                 "application/json":  {
+                                                                                                                                          "schema":  {
+                                                                                                                                                         "type":  "array",
+                                                                                                                                                         "items":  {
+                                                                                                                                                                       "type":  "object",
+                                                                                                                                                                       "additionalProperties":  true
+                                                                                                                                                                   },
+                                                                                                                                                         "title":  "Response List Analyses Api V1 Incident Ai Analyses Get"
+                                                                                                                                                     }
+                                                                                                                                      }
+                                                                                                             }
+                                                                                             },
+                                                                                     "422":  {
+                                                                                                 "description":  "Validation Error",
+                                                                                                 "content":  {
+                                                                                                                 "application/json":  {
+                                                                                                                                          "schema":  {
+                                                                                                                                                         "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                     }
+                                                                                                                                      }
+                                                                                                             }
+                                                                                             }
+                                                                                 }
+                                                               }
+                                                   },
+                  "/api/v1/incident-ai/analyze":  {
+                                                      "post":  {
+                                                                   "tags":  [
+                                                                                "incident_ai"
+                                                                            ],
+                                                                   "summary":  "Analyze Incident",
+                                                                   "description":  "Analyze the authenticated owner\u0027s stored English text, never caller replacement text.",
+                                                                   "operationId":  "analyze_incident_api_v1_incident_ai_analyze_post",
+                                                                   "requestBody":  {
+                                                                                       "content":  {
+                                                                                                       "application/json":  {
+                                                                                                                                "schema":  {
+                                                                                                                                               "$ref":  "#/components/schemas/AnalyzeIncidentRequest"
+                                                                                                                                           }
+                                                                                                                            }
+                                                                                                   },
+                                                                                       "required":  true
+                                                                                   },
+                                                                   "responses":  {
+                                                                                     "200":  {
+                                                                                                 "description":  "Successful Response",
+                                                                                                 "content":  {
+                                                                                                                 "application/json":  {
+                                                                                                                                          "schema":  {
+                                                                                                                                                         "$ref":  "#/components/schemas/IncidentAnalysis"
+                                                                                                                                                     }
+                                                                                                                                      }
+                                                                                                             }
+                                                                                             },
+                                                                                     "422":  {
+                                                                                                 "description":  "Validation Error",
+                                                                                                 "content":  {
+                                                                                                                 "application/json":  {
+                                                                                                                                          "schema":  {
+                                                                                                                                                         "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                     }
+                                                                                                                                      }
+                                                                                                             }
+                                                                                             }
+                                                                                 },
+                                                                   "security":  [
+                                                                                    {
+                                                                                        "HTTPBearer":  [
+
+                                                                                                       ]
+                                                                                    }
+                                                                                ]
+                                                               }
+                                                  },
+                  "/api/v1/safety-map/hotspots":  {
+                                                      "get":  {
+                                                                  "tags":  [
+                                                                               "safety_map"
+                                                                           ],
+                                                                  "summary":  "Read Hotspots",
+                                                                  "operationId":  "read_hotspots_api_v1_safety_map_hotspots_get",
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "bbox",
+                                                                                         "in":  "query",
+                                                                                         "required":  true,
+                                                                                         "schema":  {
+                                                                                                        "type":  "string",
+                                                                                                        "description":  "min_lon,min_lat,max_lon,max_lat",
+                                                                                                        "title":  "Bbox"
+                                                                                                    },
+                                                                                         "description":  "min_lon,min_lat,max_lon,max_lat"
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "time_period",
+                                                                                         "in":  "query",
+                                                                                         "required":  false,
+                                                                                         "schema":  {
+                                                                                                        "enum":  [
+                                                                                                                     "all",
+                                                                                                                     "morning",
+                                                                                                                     "afternoon",
+                                                                                                                     "evening",
+                                                                                                                     "night",
+                                                                                                                     "late_night",
+                                                                                                                     "not_sure"
+                                                                                                                 ],
+                                                                                                        "type":  "string",
+                                                                                                        "default":  "all",
+                                                                                                        "title":  "Time Period"
+                                                                                                    }
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "window_days",
+                                                                                         "in":  "query",
+                                                                                         "required":  false,
+                                                                                         "schema":  {
+                                                                                                        "type":  "integer",
+                                                                                                        "maximum":  365,
+                                                                                                        "minimum":  1,
+                                                                                                        "default":  30,
+                                                                                                        "title":  "Window Days"
+                                                                                                    }
+                                                                                     }
+                                                                                 ],
+                                                                  "responses":  {
+                                                                                    "200":  {
+                                                                                                "description":  "Successful Response",
+                                                                                                "content":  {
+                                                                                                                "application/json":  {
+                                                                                                                                         "schema":  {
+                                                                                                                                                        "$ref":  "#/components/schemas/HotspotsResponse"
+                                                                                                                                                    }
+                                                                                                                                     }
+                                                                                                            }
+                                                                                            },
+                                                                                    "422":  {
+                                                                                                "description":  "Validation Error",
+                                                                                                "content":  {
+                                                                                                                "application/json":  {
+                                                                                                                                         "schema":  {
+                                                                                                                                                        "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                    }
+                                                                                                                                     }
+                                                                                                            }
+                                                                                            }
+                                                                                }
+                                                              }
+                                                  },
+                  "/api/v1/safety-map/places":  {
+                                                    "get":  {
+                                                                "tags":  [
+                                                                             "safety_map"
+                                                                         ],
+                                                                "summary":  "Read Places",
+                                                                "operationId":  "read_places_api_v1_safety_map_places_get",
+                                                                "parameters":  [
+                                                                                   {
+                                                                                       "name":  "q",
+                                                                                       "in":  "query",
+                                                                                       "required":  true,
+                                                                                       "schema":  {
+                                                                                                      "type":  "string",
+                                                                                                      "minLength":  2,
+                                                                                                      "maxLength":  120,
+                                                                                                      "title":  "Q"
+                                                                                                  }
+                                                                                   },
+                                                                                   {
+                                                                                       "name":  "limit",
+                                                                                       "in":  "query",
+                                                                                       "required":  false,
+                                                                                       "schema":  {
+                                                                                                      "type":  "integer",
+                                                                                                      "maximum":  8,
+                                                                                                      "minimum":  1,
+                                                                                                      "default":  6,
+                                                                                                      "title":  "Limit"
+                                                                                                  }
+                                                                                   }
+                                                                               ],
+                                                                "responses":  {
+                                                                                  "200":  {
+                                                                                              "description":  "Successful Response",
+                                                                                              "content":  {
+                                                                                                              "application/json":  {
+                                                                                                                                       "schema":  {
+                                                                                                                                                      "type":  "array",
+                                                                                                                                                      "items":  {
+                                                                                                                                                                    "$ref":  "#/components/schemas/PlaceSuggestion"
+                                                                                                                                                                },
+                                                                                                                                                      "title":  "Response Read Places Api V1 Safety Map Places Get"
+                                                                                                                                                  }
+                                                                                                                                   }
+                                                                                                          }
+                                                                                          },
+                                                                                  "422":  {
+                                                                                              "description":  "Validation Error",
+                                                                                              "content":  {
+                                                                                                              "application/json":  {
+                                                                                                                                       "schema":  {
+                                                                                                                                                      "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                  }
+                                                                                                                                   }
+                                                                                                          }
+                                                                                          }
+                                                                              }
+                                                            }
+                                                },
+                  "/api/v1/safety-map/routes/compare":  {
+                                                            "post":  {
+                                                                         "tags":  [
+                                                                                      "safety_map"
+                                                                                  ],
+                                                                         "summary":  "Compare Routes",
+                                                                         "operationId":  "compare_routes_api_v1_safety_map_routes_compare_post",
+                                                                         "requestBody":  {
+                                                                                             "content":  {
+                                                                                                             "application/json":  {
+                                                                                                                                      "schema":  {
+                                                                                                                                                     "$ref":  "#/components/schemas/RouteComparisonRequest"
+                                                                                                                                                 }
+                                                                                                                                  }
+                                                                                                         },
+                                                                                             "required":  true
+                                                                                         },
+                                                                         "responses":  {
+                                                                                           "200":  {
+                                                                                                       "description":  "Successful Response",
+                                                                                                       "content":  {
+                                                                                                                       "application/json":  {
+                                                                                                                                                "schema":  {
+                                                                                                                                                               "$ref":  "#/components/schemas/RouteComparisonResponse"
+                                                                                                                                                           }
+                                                                                                                                            }
+                                                                                                                   }
+                                                                                                   },
+                                                                                           "422":  {
+                                                                                                       "description":  "Validation Error",
+                                                                                                       "content":  {
+                                                                                                                       "application/json":  {
+                                                                                                                                                "schema":  {
+                                                                                                                                                               "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                           }
+                                                                                                                                            }
+                                                                                                                   }
+                                                                                                   }
+                                                                                       }
+                                                                     }
+                                                        }
+              },
+    "components":  {
+                       "schemas":  {
+                                       "AnalyzeIncidentRequest":  {
+                                                                      "properties":  {
+                                                                                         "report_id":  {
+                                                                                                           "type":  "string",
+                                                                                                           "format":  "uuid",
+                                                                                                           "title":  "Report Id"
+                                                                                                       },
+                                                                                         "translated_text":  {
+                                                                                                                 "anyOf":  [
+                                                                                                                               {
+                                                                                                                                   "type":  "string",
+                                                                                                                                   "maxLength":  5000,
+                                                                                                                                   "minLength":  1
+                                                                                                                               },
+                                                                                                                               {
+                                                                                                                                   "type":  "null"
+                                                                                                                               }
+                                                                                                                           ],
+                                                                                                                 "title":  "Translated Text",
+                                                                                                                 "description":  "Legacy input, ignored. Analysis uses the owned report\u0027s stored translation.",
+                                                                                                                 "deprecated":  true
+                                                                                                             },
+                                                                                         "reported_time":  {
+                                                                                                               "anyOf":  [
+                                                                                                                             {
+                                                                                                                                 "type":  "string",
+                                                                                                                                 "maxLength":  500,
+                                                                                                                                 "minLength":  1
+                                                                                                                             },
+                                                                                                                             {
+                                                                                                                                 "type":  "null"
+                                                                                                                             }
+                                                                                                                         ],
+                                                                                                               "title":  "Reported Time"
+                                                                                                           },
+                                                                                         "street_lights":  {
+                                                                                                               "anyOf":  [
+                                                                                                                             {
+                                                                                                                                 "type":  "string",
+                                                                                                                                 "enum":  [
+                                                                                                                                              "well_lit",
+                                                                                                                                              "partially_lit",
+                                                                                                                                              "poorly_lit_or_dark",
+                                                                                                                                              "day_light",
+                                                                                                                                              "not_sure"
+                                                                                                                                          ]
+                                                                                                                             },
+                                                                                                                             {
+                                                                                                                                 "type":  "null"
+                                                                                                                             }
+                                                                                                                         ],
+                                                                                                               "title":  "Street Lights"
+                                                                                                           }
+                                                                                     },
+                                                                      "additionalProperties":  false,
+                                                                      "type":  "object",
+                                                                      "required":  [
+                                                                                       "report_id"
+                                                                                   ],
+                                                                      "title":  "AnalyzeIncidentRequest"
+                                                                  },
+                                       "Coordinate":  {
+                                                          "properties":  {
+                                                                             "latitude":  {
+                                                                                              "type":  "number",
+                                                                                              "maximum":  90.0,
+                                                                                              "minimum":  -90.0,
+                                                                                              "title":  "Latitude"
+                                                                                          },
+                                                                             "longitude":  {
+                                                                                               "type":  "number",
+                                                                                               "maximum":  180.0,
+                                                                                               "minimum":  -180.0,
+                                                                                               "title":  "Longitude"
+                                                                                           }
+                                                                         },
+                                                          "type":  "object",
+                                                          "required":  [
+                                                                           "latitude",
+                                                                           "longitude"
+                                                                       ],
+                                                          "title":  "Coordinate",
+                                                          "description":  "Explicit latitude/longitude. Never a GeoJSON ``[lon, lat]`` pair."
+                                                      },
+                                       "CrowdLevel":  {
+                                                          "type":  "string",
+                                                          "enum":  [
+                                                                       "ALMOST_EMPTY",
+                                                                       "NOT_VERY_CROWDED",
+                                                                       "MODERATELY_CROWDED",
+                                                                       "VERY_CROWDED",
+                                                                       "UNKNOWN_OR_PREFER_NOT_TO_SAY"
+                                                                   ],
+                                                          "title":  "CrowdLevel",
+                                                          "description":  "Optional, self-reported crowd levels."
+                                                      },
+                                       "CurrentSafetyStatus":  {
+                                                                   "type":  "string",
+                                                                   "enum":  [
+                                                                                "SAFE_NOW",
+                                                                                "UNSURE",
+                                                                                "MAY_STILL_BE_IN_DANGER",
+                                                                                "PREFER_NOT_TO_SAY"
+                                                                            ],
+                                                                   "title":  "CurrentSafetyStatus",
+                                                                   "description":  "User-reported safety when reporting; independent of AI assessments."
+                                                               },
+                                       "ExtractedDetails":  {
+                                                                "properties":  {
+                                                                                   "summary":  {
+                                                                                                   "anyOf":  [
+                                                                                                                 {
+                                                                                                                     "type":  "string"
+                                                                                                                 },
+                                                                                                                 {
+                                                                                                                     "type":  "null"
+                                                                                                                 }
+                                                                                                             ],
+                                                                                                   "title":  "Summary"
+                                                                                               },
+                                                                                   "reported_behaviours":  {
+                                                                                                               "items":  {
+                                                                                                                             "type":  "string"
+                                                                                                                         },
+                                                                                                               "type":  "array",
+                                                                                                               "title":  "Reported Behaviours"
+                                                                                                           },
+                                                                                   "reported_location":  {
+                                                                                                             "anyOf":  [
+                                                                                                                           {
+                                                                                                                               "type":  "string"
+                                                                                                                           },
+                                                                                                                           {
+                                                                                                                               "type":  "null"
+                                                                                                                           }
+                                                                                                                       ],
+                                                                                                             "title":  "Reported Location"
+                                                                                                         }
+                                                                               },
+                                                                "additionalProperties":  false,
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "summary",
+                                                                                 "reported_behaviours",
+                                                                                 "reported_location"
+                                                                             ],
+                                                                "title":  "ExtractedDetails"
+                                                            },
+                                       "GenderIndicator":  {
+                                                               "type":  "string",
+                                                               "enum":  [
+                                                                            "male",
+                                                                            "female"
+                                                                        ],
+                                                               "title":  "GenderIndicator",
+                                                               "description":  "The binary indicator encoded in the number, not an account gender."
+                                                           },
+                                       "HTTPValidationError":  {
+                                                                   "properties":  {
+                                                                                      "detail":  {
+                                                                                                     "items":  {
+                                                                                                                   "$ref":  "#/components/schemas/ValidationError"
+                                                                                                               },
+                                                                                                     "type":  "array",
+                                                                                                     "title":  "Detail"
+                                                                                                 }
+                                                                                  },
+                                                                   "type":  "object",
+                                                                   "title":  "HTTPValidationError"
+                                                               },
+                                       "HealthResponse":  {
+                                                              "properties":  {
+                                                                                 "status":  {
+                                                                                                "type":  "string",
+                                                                                                "const":  "ok",
+                                                                                                "title":  "Status",
+                                                                                                "default":  "ok"
+                                                                                            },
+                                                                                 "service":  {
+                                                                                                 "type":  "string",
+                                                                                                 "const":  "saferoute-ai-backend",
+                                                                                                 "title":  "Service",
+                                                                                                 "default":  "saferoute-ai-backend"
+                                                                                             },
+                                                                                 "version":  {
+                                                                                                 "type":  "string",
+                                                                                                 "title":  "Version"
+                                                                                             }
+                                                                             },
+                                                              "type":  "object",
+                                                              "required":  [
+                                                                               "version"
+                                                                           ],
+                                                              "title":  "HealthResponse"
+                                                          },
+                                       "Hotspot":  {
+                                                       "properties":  {
+                                                                          "id":  {
+                                                                                     "type":  "string",
+                                                                                     "title":  "Id"
+                                                                                 },
+                                                                          "center":  {
+                                                                                         "$ref":  "#/components/schemas/Coordinate"
+                                                                                     },
+                                                                          "radius_m":  {
+                                                                                           "type":  "number",
+                                                                                           "minimum":  150.0,
+                                                                                           "title":  "Radius M"
+                                                                                       },
+                                                                          "report_count":  {
+                                                                                               "type":  "integer",
+                                                                                               "minimum":  3.0,
+                                                                                               "title":  "Report Count"
+                                                                                           },
+                                                                          "intensity":  {
+                                                                                            "type":  "number",
+                                                                                            "maximum":  1.0,
+                                                                                            "minimum":  0.0,
+                                                                                            "title":  "Intensity"
+                                                                                        },
+                                                                          "top_incident_categories":  {
+                                                                                                          "items":  {
+                                                                                                                        "type":  "string"
+                                                                                                                    },
+                                                                                                          "type":  "array",
+                                                                                                          "maxItems":  3,
+                                                                                                          "title":  "Top Incident Categories"
+                                                                                                      },
+                                                                          "top_safety_concerns":  {
+                                                                                                      "items":  {
+                                                                                                                    "type":  "string"
+                                                                                                                },
+                                                                                                      "type":  "array",
+                                                                                                      "maxItems":  3,
+                                                                                                      "title":  "Top Safety Concerns"
+                                                                                                  },
+                                                                          "peak_time_period":  {
+                                                                                                   "anyOf":  [
+                                                                                                                 {
+                                                                                                                     "type":  "string",
+                                                                                                                     "enum":  [
+                                                                                                                                  "morning",
+                                                                                                                                  "afternoon",
+                                                                                                                                  "evening",
+                                                                                                                                  "night",
+                                                                                                                                  "late_night",
+                                                                                                                                  "not_sure"
+                                                                                                                              ]
+                                                                                                                 },
+                                                                                                                 {
+                                                                                                                     "type":  "null"
+                                                                                                                 }
+                                                                                                             ],
+                                                                                                   "title":  "Peak Time Period"
+                                                                                               },
+                                                                          "most_recent_report_days_ago":  {
+                                                                                                              "type":  "integer",
+                                                                                                              "minimum":  0.0,
+                                                                                                              "title":  "Most Recent Report Days Ago"
+                                                                                                          },
+                                                                          "mean_confidence":  {
+                                                                                                  "type":  "number",
+                                                                                                  "maximum":  1.0,
+                                                                                                  "minimum":  0.0,
+                                                                                                  "title":  "Mean Confidence"
+                                                                                              },
+                                                                          "evidence_level":  {
+                                                                                                 "type":  "string",
+                                                                                                 "enum":  [
+                                                                                                              "insufficient",
+                                                                                                              "limited",
+                                                                                                              "moderate"
+                                                                                                          ],
+                                                                                                 "title":  "Evidence Level"
+                                                                                             }
+                                                                      },
+                                                       "type":  "object",
+                                                       "required":  [
+                                                                        "id",
+                                                                        "center",
+                                                                        "radius_m",
+                                                                        "report_count",
+                                                                        "intensity",
+                                                                        "top_incident_categories",
+                                                                        "top_safety_concerns",
+                                                                        "peak_time_period",
+                                                                        "most_recent_report_days_ago",
+                                                                        "mean_confidence",
+                                                                        "evidence_level"
+                                                                    ],
+                                                       "title":  "Hotspot",
+                                                       "description":  "An aggregated area, not an incident. No report content is included."
+                                                   },
+                                       "HotspotsResponse":  {
+                                                                "properties":  {
+                                                                                   "generated_at":  {
+                                                                                                        "type":  "string",
+                                                                                                        "format":  "date-time",
+                                                                                                        "title":  "Generated At"
+                                                                                                    },
+                                                                                   "window_days":  {
+                                                                                                       "type":  "integer",
+                                                                                                       "exclusiveMinimum":  0.0,
+                                                                                                       "title":  "Window Days"
+                                                                                                   },
+                                                                                   "min_reports_per_hotspot":  {
+                                                                                                                   "type":  "integer",
+                                                                                                                   "minimum":  3.0,
+                                                                                                                   "title":  "Min Reports Per Hotspot"
+                                                                                                               },
+                                                                                   "hotspots":  {
+                                                                                                    "items":  {
+                                                                                                                  "$ref":  "#/components/schemas/Hotspot"
+                                                                                                              },
+                                                                                                    "type":  "array",
+                                                                                                    "title":  "Hotspots"
+                                                                                                },
+                                                                                   "suppressed_area_count":  {
+                                                                                                                 "type":  "integer",
+                                                                                                                 "minimum":  0.0,
+                                                                                                                 "title":  "Suppressed Area Count"
+                                                                                                             },
+                                                                                   "evidence_level":  {
+                                                                                                          "type":  "string",
+                                                                                                          "enum":  [
+                                                                                                                       "insufficient",
+                                                                                                                       "limited",
+                                                                                                                       "moderate"
+                                                                                                                   ],
+                                                                                                          "title":  "Evidence Level"
+                                                                                                      }
+                                                                               },
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "generated_at",
+                                                                                 "window_days",
+                                                                                 "min_reports_per_hotspot",
+                                                                                 "hotspots",
+                                                                                 "suppressed_area_count",
+                                                                                 "evidence_level"
+                                                                             ],
+                                                                "title":  "HotspotsResponse"
+                                                            },
+                                       "IncidentAnalysis":  {
+                                                                "properties":  {
+                                                                                   "analysis_status":  {
+                                                                                                           "type":  "string",
+                                                                                                           "enum":  [
+                                                                                                                        "completed",
+                                                                                                                        "needs_review"
+                                                                                                                    ],
+                                                                                                           "title":  "Analysis Status"
+                                                                                                       },
+                                                                                   "IncidentCategory":  {
+                                                                                                            "anyOf":  [
+                                                                                                                          {
+                                                                                                                              "type":  "string",
+                                                                                                                              "enum":  [
+                                                                                                                                           "UNWANTED_FOLLOWING",
+                                                                                                                                           "VERBAL_SEXUAL_HARASSMENT",
+                                                                                                                                           "UNWANTED_PHYSICAL_CONTACT",
+                                                                                                                                           "THREATENING_BEHAVIOUR",
+                                                                                                                                           "UNCOMFORTABLE_STARING",
+                                                                                                                                           "OTHER",
+                                                                                                                                           "UNCLEAR"
+                                                                                                                                       ]
+                                                                                                                          },
+                                                                                                                          {
+                                                                                                                              "type":  "null"
+                                                                                                                          }
+                                                                                                                      ],
+                                                                                                            "title":  "Incidentcategory"
+                                                                                                        },
+                                                                                   "SafetyConcernCategory":  {
+                                                                                                                 "anyOf":  [
+                                                                                                                               {
+                                                                                                                                   "type":  "string",
+                                                                                                                                   "enum":  [
+                                                                                                                                                "POOR_STREET_LIGHTING",
+                                                                                                                                                "ISOLATED_OR_DESERTED_ROAD",
+                                                                                                                                                "UNSAFE_BUS_STOP",
+                                                                                                                                                "FEELING_UNSAFE_WITHOUT_CONFIRMED_INCIDENT",
+                                                                                                                                                "PREVIOUS_SAFETY_CONCERNS_AT_LOCATION",
+                                                                                                                                                "OTHER",
+                                                                                                                                                "UNCLEAR"
+                                                                                                                                            ]
+                                                                                                                               },
+                                                                                                                               {
+                                                                                                                                   "type":  "null"
+                                                                                                                               }
+                                                                                                                           ],
+                                                                                                                 "title":  "Safetyconcerncategory"
+                                                                                                             },
+                                                                                   "reported_time":  {
+                                                                                                         "type":  "string",
+                                                                                                         "enum":  [
+                                                                                                                      "morning",
+                                                                                                                      "afternoon",
+                                                                                                                      "evening",
+                                                                                                                      "night",
+                                                                                                                      "late_night",
+                                                                                                                      "not_sure"
+                                                                                                                  ],
+                                                                                                         "title":  "Reported Time"
+                                                                                                     },
+                                                                                   "street_lights":  {
+                                                                                                         "type":  "string",
+                                                                                                         "enum":  [
+                                                                                                                      "well_lit",
+                                                                                                                      "partially_lit",
+                                                                                                                      "poorly_lit_or_dark",
+                                                                                                                      "day_light",
+                                                                                                                      "not_sure"
+                                                                                                                  ],
+                                                                                                         "title":  "Street Lights"
+                                                                                                     },
+                                                                                   "immediate_danger_reported":  {
+                                                                                                                     "anyOf":  [
+                                                                                                                                   {
+                                                                                                                                       "type":  "boolean"
+                                                                                                                                   },
+                                                                                                                                   {
+                                                                                                                                       "type":  "null"
+                                                                                                                                   }
+                                                                                                                               ],
+                                                                                                                     "title":  "Immediate Danger Reported"
+                                                                                                                 },
+                                                                                   "severity":  {
+                                                                                                    "anyOf":  [
+                                                                                                                  {
+                                                                                                                      "type":  "integer",
+                                                                                                                      "maximum":  10.0,
+                                                                                                                      "minimum":  0.0
+                                                                                                                  },
+                                                                                                                  {
+                                                                                                                      "type":  "null"
+                                                                                                                  }
+                                                                                                              ],
+                                                                                                    "title":  "Severity"
+                                                                                                },
+                                                                                   "confidence":  {
+                                                                                                      "anyOf":  [
+                                                                                                                    {
+                                                                                                                        "type":  "number",
+                                                                                                                        "maximum":  1.0,
+                                                                                                                        "minimum":  0.0
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "type":  "null"
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                      "title":  "Confidence"
+                                                                                                  },
+                                                                                   "extracted_details":  {
+                                                                                                             "$ref":  "#/components/schemas/ExtractedDetails"
+                                                                                                         },
+                                                                                   "id":  {
+                                                                                              "type":  "string",
+                                                                                              "format":  "uuid",
+                                                                                              "title":  "Id"
+                                                                                          },
+                                                                                   "report_id":  {
+                                                                                                     "type":  "string",
+                                                                                                     "format":  "uuid",
+                                                                                                     "title":  "Report Id"
+                                                                                                 },
+                                                                                   "created_at":  {
+                                                                                                      "type":  "string",
+                                                                                                      "format":  "date-time",
+                                                                                                      "title":  "Created At"
+                                                                                                  }
+                                                                               },
+                                                                "additionalProperties":  false,
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "analysis_status",
+                                                                                 "IncidentCategory",
+                                                                                 "SafetyConcernCategory",
+                                                                                 "reported_time",
+                                                                                 "street_lights",
+                                                                                 "immediate_danger_reported",
+                                                                                 "severity",
+                                                                                 "confidence",
+                                                                                 "extracted_details",
+                                                                                 "report_id"
+                                                                             ],
+                                                                "title":  "IncidentAnalysis"
+                                                            },
+                                       "InputMethod":  {
+                                                           "type":  "string",
+                                                           "enum":  [
+                                                                        "text",
+                                                                        "voice"
+                                                                    ],
+                                                           "title":  "InputMethod",
+                                                           "description":  "Supported report input methods."
+                                                       },
+                                       "LanguageHint":  {
+                                                            "type":  "string",
+                                                            "enum":  [
+                                                                         "si",
+                                                                         "si-Latn",
+                                                                         "en",
+                                                                         "ta",
+                                                                         "mixed",
+                                                                         "unknown"
+                                                                     ],
+                                                            "title":  "LanguageHint",
+                                                            "description":  "User-supplied language hints, including Singlish and mixed input."
+                                                        },
+                                       "LightingCondition":  {
+                                                                 "type":  "string",
+                                                                 "enum":  [
+                                                                              "WELL_LIT",
+                                                                              "PARTIALLY_LIT",
+                                                                              "POORLY_LIT_OR_DARK",
+                                                                              "DAYLIGHT",
+                                                                              "UNKNOWN_OR_PREFER_NOT_TO_SAY"
+                                                                          ],
+                                                                 "title":  "LightingCondition",
+                                                                 "description":  "Optional, self-reported lighting conditions."
+                                                             },
+                                       "NICClassificationRequest":  {
+                                                                        "properties":  {
+                                                                                           "nic":  {
+                                                                                                       "type":  "string",
+                                                                                                       "format":  "password",
+                                                                                                       "title":  "Nic",
+                                                                                                       "description":  "NIC to parse in memory; never persisted.",
+                                                                                                       "writeOnly":  true
+                                                                                                   }
+                                                                                       },
+                                                                        "additionalProperties":  false,
+                                                                        "type":  "object",
+                                                                        "required":  [
+                                                                                         "nic"
+                                                                                     ],
+                                                                        "title":  "NICClassificationRequest",
+                                                                        "description":  "Accept the number only in the request body and mask normal representations."
+                                                                    },
+                                       "NICClassificationResponse":  {
+                                                                         "properties":  {
+                                                                                            "gender_indicator":  {
+                                                                                                                     "$ref":  "#/components/schemas/GenderIndicator"
+                                                                                                                 },
+                                                                                            "nic_format":  {
+                                                                                                               "$ref":  "#/components/schemas/NICFormat"
+                                                                                                           },
+                                                                                            "classification_method":  {
+                                                                                                                          "type":  "string",
+                                                                                                                          "const":  "nic_format",
+                                                                                                                          "title":  "Classification Method",
+                                                                                                                          "default":  "nic_format"
+                                                                                                                      },
+                                                                                            "identity_verified":  {
+                                                                                                                      "type":  "boolean",
+                                                                                                                      "const":  false,
+                                                                                                                      "title":  "Identity Verified",
+                                                                                                                      "default":  false
+                                                                                                                  }
+                                                                                        },
+                                                                         "additionalProperties":  false,
+                                                                         "type":  "object",
+                                                                         "required":  [
+                                                                                          "gender_indicator",
+                                                                                          "nic_format"
+                                                                                      ],
+                                                                         "title":  "NICClassificationResponse",
+                                                                         "description":  "Only a format-based result; deliberately excludes the NIC and birth date."
+                                                                     },
+                                       "NICFormat":  {
+                                                         "type":  "string",
+                                                         "enum":  [
+                                                                      "old",
+                                                                      "new"
+                                                                  ],
+                                                         "title":  "NICFormat"
+                                                     },
+                                       "PlaceSuggestion":  {
+                                                               "properties":  {
+                                                                                  "id":  {
+                                                                                             "type":  "string",
+                                                                                             "title":  "Id"
+                                                                                         },
+                                                                                  "name":  {
+                                                                                               "type":  "string",
+                                                                                               "title":  "Name"
+                                                                                           },
+                                                                                  "context":  {
+                                                                                                  "type":  "string",
+                                                                                                  "title":  "Context"
+                                                                                              },
+                                                                                  "coordinate":  {
+                                                                                                     "$ref":  "#/components/schemas/Coordinate"
+                                                                                                 }
+                                                                              },
+                                                               "type":  "object",
+                                                               "required":  [
+                                                                                "id",
+                                                                                "name",
+                                                                                "context",
+                                                                                "coordinate"
+                                                                            ],
+                                                               "title":  "PlaceSuggestion",
+                                                               "description":  "A public place name for the journey planner. Carries no report data."
+                                                           },
+                                       "ReportCreateRequest":  {
+                                                                   "properties":  {
+                                                                                      "original_text":  {
+                                                                                                            "type":  "string",
+                                                                                                            "maxLength":  5000,
+                                                                                                            "minLength":  1,
+                                                                                                            "title":  "Original Text"
+                                                                                                        },
+                                                                                      "translated_text":  {
+                                                                                                              "type":  "string",
+                                                                                                              "maxLength":  5000,
+                                                                                                              "minLength":  1,
+                                                                                                              "title":  "Translated Text",
+                                                                                                              "description":  "Optional legacy translation. Omit to request English preparation; null is invalid."
+                                                                                                          },
+                                                                                      "input_method":  {
+                                                                                                           "$ref":  "#/components/schemas/InputMethod"
+                                                                                                       },
+                                                                                      "language_hint":  {
+                                                                                                            "$ref":  "#/components/schemas/LanguageHint"
+                                                                                                        },
+                                                                                      "latitude":  {
+                                                                                                       "anyOf":  [
+                                                                                                                     {
+                                                                                                                         "type":  "number",
+                                                                                                                         "maximum":  90.0,
+                                                                                                                         "minimum":  -90.0
+                                                                                                                     },
+                                                                                                                     {
+                                                                                                                         "type":  "null"
+                                                                                                                     }
+                                                                                                                 ],
+                                                                                                       "title":  "Latitude"
+                                                                                                   },
+                                                                                      "longitude":  {
+                                                                                                        "anyOf":  [
+                                                                                                                      {
+                                                                                                                          "type":  "number",
+                                                                                                                          "maximum":  180.0,
+                                                                                                                          "minimum":  -180.0
+                                                                                                                      },
+                                                                                                                      {
+                                                                                                                          "type":  "null"
+                                                                                                                      }
+                                                                                                                  ],
+                                                                                                        "title":  "Longitude"
+                                                                                                    },
+                                                                                      "occurred_at":  {
+                                                                                                          "anyOf":  [
+                                                                                                                        {
+                                                                                                                            "type":  "string",
+                                                                                                                            "format":  "date-time"
+                                                                                                                        },
+                                                                                                                        {
+                                                                                                                            "type":  "null"
+                                                                                                                        }
+                                                                                                                    ],
+                                                                                                          "title":  "Occurred At"
+                                                                                                      },
+                                                                                      "lighting_condition":  {
+                                                                                                                 "anyOf":  [
+                                                                                                                               {
+                                                                                                                                   "$ref":  "#/components/schemas/LightingCondition"
+                                                                                                                               },
+                                                                                                                               {
+                                                                                                                                   "type":  "null"
+                                                                                                                               }
+                                                                                                                           ],
+                                                                                                                 "description":  "Optional, self-reported incident lighting conditions."
+                                                                                                             },
+                                                                                      "crowd_level":  {
+                                                                                                          "anyOf":  [
+                                                                                                                        {
+                                                                                                                            "$ref":  "#/components/schemas/CrowdLevel"
+                                                                                                                        },
+                                                                                                                        {
+                                                                                                                            "type":  "null"
+                                                                                                                        }
+                                                                                                                    ],
+                                                                                                          "description":  "Optional, self-reported incident crowd level."
+                                                                                                      },
+                                                                                      "current_safety_status":  {
+                                                                                                                    "anyOf":  [
+                                                                                                                                  {
+                                                                                                                                      "$ref":  "#/components/schemas/CurrentSafetyStatus"
+                                                                                                                                  },
+                                                                                                                                  {
+                                                                                                                                      "type":  "null"
+                                                                                                                                  }
+                                                                                                                              ],
+                                                                                                                    "description":  "Optional safety status when reporting, supplied by the user. This does not contact emergency services."
+                                                                                                                }
+                                                                                  },
+                                                                   "additionalProperties":  false,
+                                                                   "type":  "object",
+                                                                   "required":  [
+                                                                                    "original_text",
+                                                                                    "input_method",
+                                                                                    "language_hint"
+                                                                                ],
+                                                                   "title":  "ReportCreateRequest",
+                                                                   "description":  "Creation input; omission requests server-side English preparation."
+                                                               },
+                                       "ReportResponse":  {
+                                                              "properties":  {
+                                                                                 "original_text":  {
+                                                                                                       "type":  "string",
+                                                                                                       "maxLength":  5000,
+                                                                                                       "minLength":  1,
+                                                                                                       "title":  "Original Text"
+                                                                                                   },
+                                                                                 "translated_text":  {
+                                                                                                         "type":  "string",
+                                                                                                         "maxLength":  5000,
+                                                                                                         "minLength":  1,
+                                                                                                         "title":  "Translated Text"
+                                                                                                     },
+                                                                                 "input_method":  {
+                                                                                                      "$ref":  "#/components/schemas/InputMethod"
+                                                                                                  },
+                                                                                 "language_hint":  {
+                                                                                                       "$ref":  "#/components/schemas/LanguageHint"
+                                                                                                   },
+                                                                                 "latitude":  {
+                                                                                                  "anyOf":  [
+                                                                                                                {
+                                                                                                                    "type":  "number",
+                                                                                                                    "maximum":  90.0,
+                                                                                                                    "minimum":  -90.0
+                                                                                                                },
+                                                                                                                {
+                                                                                                                    "type":  "null"
+                                                                                                                }
+                                                                                                            ],
+                                                                                                  "title":  "Latitude"
+                                                                                              },
+                                                                                 "longitude":  {
+                                                                                                   "anyOf":  [
+                                                                                                                 {
+                                                                                                                     "type":  "number",
+                                                                                                                     "maximum":  180.0,
+                                                                                                                     "minimum":  -180.0
+                                                                                                                 },
+                                                                                                                 {
+                                                                                                                     "type":  "null"
+                                                                                                                 }
+                                                                                                             ],
+                                                                                                   "title":  "Longitude"
+                                                                                               },
+                                                                                 "occurred_at":  {
+                                                                                                     "anyOf":  [
+                                                                                                                   {
+                                                                                                                       "type":  "string",
+                                                                                                                       "format":  "date-time"
+                                                                                                                   },
+                                                                                                                   {
+                                                                                                                       "type":  "null"
+                                                                                                                   }
+                                                                                                               ],
+                                                                                                     "title":  "Occurred At"
+                                                                                                 },
+                                                                                 "lighting_condition":  {
+                                                                                                            "anyOf":  [
+                                                                                                                          {
+                                                                                                                              "$ref":  "#/components/schemas/LightingCondition"
+                                                                                                                          },
+                                                                                                                          {
+                                                                                                                              "type":  "null"
+                                                                                                                          }
+                                                                                                                      ],
+                                                                                                            "description":  "Optional, self-reported incident lighting conditions."
+                                                                                                        },
+                                                                                 "crowd_level":  {
+                                                                                                     "anyOf":  [
+                                                                                                                   {
+                                                                                                                       "$ref":  "#/components/schemas/CrowdLevel"
+                                                                                                                   },
+                                                                                                                   {
+                                                                                                                       "type":  "null"
+                                                                                                                   }
+                                                                                                               ],
+                                                                                                     "description":  "Optional, self-reported incident crowd level."
+                                                                                                 },
+                                                                                 "current_safety_status":  {
+                                                                                                               "anyOf":  [
+                                                                                                                             {
+                                                                                                                                 "$ref":  "#/components/schemas/CurrentSafetyStatus"
+                                                                                                                             },
+                                                                                                                             {
+                                                                                                                                 "type":  "null"
+                                                                                                                             }
+                                                                                                                         ],
+                                                                                                               "description":  "Optional safety status when reporting, supplied by the user. This does not contact emergency services."
+                                                                                                           },
+                                                                                 "id":  {
+                                                                                            "type":  "string",
+                                                                                            "format":  "uuid",
+                                                                                            "title":  "Id"
+                                                                                        },
+                                                                                 "submitted_at":  {
+                                                                                                      "type":  "string",
+                                                                                                      "format":  "date-time",
+                                                                                                      "title":  "Submitted At"
+                                                                                                  }
+                                                                             },
+                                                              "additionalProperties":  false,
+                                                              "type":  "object",
+                                                              "required":  [
+                                                                               "original_text",
+                                                                               "translated_text",
+                                                                               "input_method",
+                                                                               "language_hint",
+                                                                               "id",
+                                                                               "submitted_at"
+                                                                           ],
+                                                              "title":  "ReportResponse",
+                                                              "description":  "Saved report with an ID and submission time explicitly supplied by server code."
+                                                          },
+                                       "Route":  {
+                                                     "properties":  {
+                                                                        "id":  {
+                                                                                   "type":  "string",
+                                                                                   "title":  "Id"
+                                                                               },
+                                                                        "role":  {
+                                                                                     "type":  "string",
+                                                                                     "enum":  [
+                                                                                                  "fastest",
+                                                                                                  "lower-exposure",
+                                                                                                  "alternative",
+                                                                                                  "avoids-all"
+                                                                                              ],
+                                                                                     "title":  "Role"
+                                                                                 },
+                                                                        "duration_s":  {
+                                                                                           "type":  "integer",
+                                                                                           "minimum":  0.0,
+                                                                                           "title":  "Duration S"
+                                                                                       },
+                                                                        "distance_m":  {
+                                                                                           "type":  "number",
+                                                                                           "minimum":  0.0,
+                                                                                           "title":  "Distance M"
+                                                                                       },
+                                                                        "geometry":  {
+                                                                                         "items":  {
+                                                                                                       "$ref":  "#/components/schemas/Coordinate"
+                                                                                                   },
+                                                                                         "type":  "array",
+                                                                                         "minItems":  2,
+                                                                                         "title":  "Geometry"
+                                                                                     },
+                                                                        "exposure_score":  {
+                                                                                               "type":  "number",
+                                                                                               "maximum":  100.0,
+                                                                                               "minimum":  0.0,
+                                                                                               "title":  "Exposure Score"
+                                                                                           },
+                                                                        "hotspots_passed":  {
+                                                                                                "type":  "integer",
+                                                                                                "minimum":  0.0,
+                                                                                                "title":  "Hotspots Passed"
+                                                                                            },
+                                                                        "incident_categories":  {
+                                                                                                    "items":  {
+                                                                                                                  "type":  "string"
+                                                                                                              },
+                                                                                                    "type":  "array",
+                                                                                                    "maxItems":  3,
+                                                                                                    "title":  "Incident Categories"
+                                                                                                },
+                                                                        "safety_concerns":  {
+                                                                                                "items":  {
+                                                                                                              "type":  "string"
+                                                                                                          },
+                                                                                                "type":  "array",
+                                                                                                "maxItems":  3,
+                                                                                                "title":  "Safety Concerns"
+                                                                                            },
+                                                                        "extra_duration_s":  {
+                                                                                                 "type":  "integer",
+                                                                                                 "minimum":  0.0,
+                                                                                                 "title":  "Extra Duration S"
+                                                                                             }
+                                                                    },
+                                                     "type":  "object",
+                                                     "required":  [
+                                                                      "id",
+                                                                      "role",
+                                                                      "duration_s",
+                                                                      "distance_m",
+                                                                      "geometry",
+                                                                      "exposure_score",
+                                                                      "hotspots_passed",
+                                                                      "incident_categories",
+                                                                      "safety_concerns",
+                                                                      "extra_duration_s"
+                                                                  ],
+                                                     "title":  "Route"
+                                                 },
+                                       "RouteComparisonRequest":  {
+                                                                      "properties":  {
+                                                                                         "origin":  {
+                                                                                                        "$ref":  "#/components/schemas/Coordinate"
+                                                                                                    },
+                                                                                         "destination":  {
+                                                                                                             "$ref":  "#/components/schemas/Coordinate"
+                                                                                                         },
+                                                                                         "time_period":  {
+                                                                                                             "type":  "string",
+                                                                                                             "enum":  [
+                                                                                                                          "all",
+                                                                                                                          "morning",
+                                                                                                                          "afternoon",
+                                                                                                                          "evening",
+                                                                                                                          "night",
+                                                                                                                          "late_night",
+                                                                                                                          "not_sure"
+                                                                                                                      ],
+                                                                                                             "title":  "Time Period",
+                                                                                                             "default":  "all"
+                                                                                                         },
+                                                                                         "travel_mode":  {
+                                                                                                             "type":  "string",
+                                                                                                             "enum":  [
+                                                                                                                          "walking",
+                                                                                                                          "driving"
+                                                                                                                      ],
+                                                                                                             "title":  "Travel Mode",
+                                                                                                             "default":  "walking"
+                                                                                                         }
+                                                                                     },
+                                                                      "type":  "object",
+                                                                      "required":  [
+                                                                                       "origin",
+                                                                                       "destination"
+                                                                                   ],
+                                                                      "title":  "RouteComparisonRequest"
+                                                                  },
+                                       "RouteComparisonResponse":  {
+                                                                       "properties":  {
+                                                                                          "routes":  {
+                                                                                                         "items":  {
+                                                                                                                       "$ref":  "#/components/schemas/Route"
+                                                                                                                   },
+                                                                                                         "type":  "array",
+                                                                                                         "maxItems":  4,
+                                                                                                         "minItems":  1,
+                                                                                                         "title":  "Routes"
+                                                                                                     },
+                                                                                          "recommended_route_id":  {
+                                                                                                                       "anyOf":  [
+                                                                                                                                     {
+                                                                                                                                         "type":  "string"
+                                                                                                                                     },
+                                                                                                                                     {
+                                                                                                                                         "type":  "null"
+                                                                                                                                     }
+                                                                                                                                 ],
+                                                                                                                       "title":  "Recommended Route Id"
+                                                                                                                   },
+                                                                                          "lowest_exposure_route_id":  {
+                                                                                                                           "anyOf":  [
+                                                                                                                                         {
+                                                                                                                                             "type":  "string"
+                                                                                                                                         },
+                                                                                                                                         {
+                                                                                                                                             "type":  "null"
+                                                                                                                                         }
+                                                                                                                                     ],
+                                                                                                                           "title":  "Lowest Exposure Route Id"
+                                                                                                                       },
+                                                                                          "clear_route_id":  {
+                                                                                                                 "anyOf":  [
+                                                                                                                               {
+                                                                                                                                   "type":  "string"
+                                                                                                                               },
+                                                                                                                               {
+                                                                                                                                   "type":  "null"
+                                                                                                                               }
+                                                                                                                           ],
+                                                                                                                 "title":  "Clear Route Id"
+                                                                                                             },
+                                                                                          "origin_in_reported_area":  {
+                                                                                                                          "type":  "boolean",
+                                                                                                                          "title":  "Origin In Reported Area",
+                                                                                                                          "default":  false
+                                                                                                                      },
+                                                                                          "destination_in_reported_area":  {
+                                                                                                                               "type":  "boolean",
+                                                                                                                               "title":  "Destination In Reported Area",
+                                                                                                                               "default":  false
+                                                                                                                           },
+                                                                                          "evidence_level":  {
+                                                                                                                 "type":  "string",
+                                                                                                                 "enum":  [
+                                                                                                                              "insufficient",
+                                                                                                                              "limited",
+                                                                                                                              "moderate"
+                                                                                                                          ],
+                                                                                                                 "title":  "Evidence Level"
+                                                                                                             },
+                                                                                          "travel_mode":  {
+                                                                                                              "type":  "string",
+                                                                                                              "enum":  [
+                                                                                                                           "walking",
+                                                                                                                           "driving"
+                                                                                                                       ],
+                                                                                                              "title":  "Travel Mode"
+                                                                                                          },
+                                                                                          "uses_street_network":  {
+                                                                                                                      "type":  "boolean",
+                                                                                                                      "title":  "Uses Street Network"
+                                                                                                                  },
+                                                                                          "pedestrian_profile_available":  {
+                                                                                                                               "type":  "boolean",
+                                                                                                                               "title":  "Pedestrian Profile Available",
+                                                                                                                               "default":  false
+                                                                                                                           }
+                                                                                      },
+                                                                       "type":  "object",
+                                                                       "required":  [
+                                                                                        "routes",
+                                                                                        "recommended_route_id",
+                                                                                        "lowest_exposure_route_id",
+                                                                                        "clear_route_id",
+                                                                                        "evidence_level",
+                                                                                        "travel_mode",
+                                                                                        "uses_street_network"
+                                                                                    ],
+                                                                       "title":  "RouteComparisonResponse"
+                                                                   },
+                                       "TranscriptionResponse":  {
+                                                                     "properties":  {
+                                                                                        "transcript":  {
+                                                                                                           "type":  "string",
+                                                                                                           "maxLength":  5000,
+                                                                                                           "minLength":  1,
+                                                                                                           "title":  "Transcript"
+                                                                                                       },
+                                                                                        "requested_language_hint":  {
+                                                                                                                        "$ref":  "#/components/schemas/LanguageHint"
+                                                                                                                    },
+                                                                                        "review_required":  {
+                                                                                                                "type":  "boolean",
+                                                                                                                "const":  true,
+                                                                                                                "title":  "Review Required",
+                                                                                                                "default":  true
+                                                                                                            }
+                                                                                    },
+                                                                     "additionalProperties":  false,
+                                                                     "type":  "object",
+                                                                     "required":  [
+                                                                                      "transcript",
+                                                                                      "requested_language_hint"
+                                                                                  ],
+                                                                     "title":  "TranscriptionResponse"
+                                                                 },
+                                       "ValidationError":  {
+                                                               "properties":  {
+                                                                                  "loc":  {
+                                                                                              "items":  {
+                                                                                                            "anyOf":  [
+                                                                                                                          {
+                                                                                                                              "type":  "string"
+                                                                                                                          },
+                                                                                                                          {
+                                                                                                                              "type":  "integer"
+                                                                                                                          }
+                                                                                                                      ]
+                                                                                                        },
+                                                                                              "type":  "array",
+                                                                                              "title":  "Location"
+                                                                                          },
+                                                                                  "msg":  {
+                                                                                              "type":  "string",
+                                                                                              "title":  "Message"
+                                                                                          },
+                                                                                  "type":  {
+                                                                                               "type":  "string",
+                                                                                               "title":  "Error Type"
+                                                                                           },
+                                                                                  "input":  {
+                                                                                                "title":  "Input"
+                                                                                            },
+                                                                                  "ctx":  {
+                                                                                              "type":  "object",
+                                                                                              "title":  "Context"
+                                                                                          }
+                                                                              },
+                                                               "type":  "object",
+                                                               "required":  [
+                                                                                "loc",
+                                                                                "msg",
+                                                                                "type"
+                                                                            ],
+                                                               "title":  "ValidationError"
+                                                           }
+                                   },
+                       "securitySchemes":  {
+                                               "HTTPBearer":  {
+                                                                  "type":  "http",
+                                                                  "scheme":  "bearer"
+                                                              }
+                                           }
+                   }
+}

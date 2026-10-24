@@ -17,6 +17,7 @@ from app.core.security import (
     get_token_verifier,
 )
 from app.modules.reporting.service import ReportService
+from app.modules.reporting.transcription.conversion import FFmpegAudioConverter
 from app.modules.reporting.transcription.provider import GroqTranscriber
 from app.modules.reporting.transcription.service import TranscriptionService
 from app.modules.reporting.transcription.translation import GroqReportTranslator
@@ -115,4 +116,5 @@ def get_transcription_service(
         ),
         max_bytes=settings.transcription_max_bytes,
         max_duration=settings.transcription_max_duration_seconds,
+        converter=FFmpegAudioConverter(settings.transcription_conversion_timeout_seconds),
     )

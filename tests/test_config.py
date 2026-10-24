@@ -25,6 +25,7 @@ def isolated_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterat
         "GROQ_API_KEY",
         "TRANSCRIPTION_MODEL",
         "TRANSCRIPTION_TIMEOUT_SECONDS",
+        "TRANSCRIPTION_CONVERSION_TIMEOUT_SECONDS",
         "TRANSCRIPTION_MAX_BYTES",
         "TRANSCRIPTION_MAX_DURATION_SECONDS",
     ):
@@ -200,6 +201,7 @@ def test_transcription_defaults_are_optional_and_separate() -> None:
     settings = Settings()
     assert settings.transcription_model == "whisper-large-v3"
     assert settings.transcription_timeout_seconds == 30
+    assert settings.transcription_conversion_timeout_seconds == 15
     assert settings.transcription_max_bytes == 10 * 1024 * 1024
     assert settings.transcription_max_duration_seconds == 60
     assert settings.groq_api_key.get_secret_value() == ""
@@ -209,6 +211,7 @@ def test_transcription_settings_from_environment(monkeypatch: pytest.MonkeyPatch
     for name, value in {
         "TRANSCRIPTION_MODEL": "dummy-speech-model",
         "TRANSCRIPTION_TIMEOUT_SECONDS": "12.5",
+        "TRANSCRIPTION_CONVERSION_TIMEOUT_SECONDS": "10",
         "TRANSCRIPTION_MAX_BYTES": "1000000",
         "TRANSCRIPTION_MAX_DURATION_SECONDS": "15",
         "LLM_MODEL": "dummy-chat-model",
@@ -219,6 +222,7 @@ def test_transcription_settings_from_environment(monkeypatch: pytest.MonkeyPatch
     assert settings.transcription_model == "dummy-speech-model"
     assert settings.llm_model == "dummy-chat-model"
     assert settings.transcription_timeout_seconds == 12.5
+    assert settings.transcription_conversion_timeout_seconds == 10
     assert settings.transcription_max_bytes == 1000000
     assert settings.transcription_max_duration_seconds == 15
 
@@ -231,6 +235,11 @@ def test_transcription_settings_from_environment(monkeypatch: pytest.MonkeyPatch
         ("transcription_timeout_seconds", -1),
         ("transcription_timeout_seconds", float("nan")),
         ("transcription_timeout_seconds", float("inf")),
+        ("transcription_conversion_timeout_seconds", 0),
+        ("transcription_conversion_timeout_seconds", -1),
+        ("transcription_conversion_timeout_seconds", float("nan")),
+        ("transcription_conversion_timeout_seconds", float("inf")),
+        ("transcription_conversion_timeout_seconds", 30.1),
         ("transcription_max_bytes", 0),
         ("transcription_max_bytes", -1),
         ("transcription_max_bytes", 10485761),

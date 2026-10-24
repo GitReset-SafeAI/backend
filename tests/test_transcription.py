@@ -208,7 +208,7 @@ def test_upload_timeout_releases_capacity(
     ).review_required
 
 
-def test_two_slots_cover_uploads_and_fail_fast_then_release(wav_audio: bytes) -> None:
+def test_two_slots_cover_uploads_and_fail_fast_then_release(wav_audio: bytes, caplog) -> None:
     async def scenario():
         started = 0
         both_started = asyncio.Event()
@@ -241,6 +241,7 @@ def test_two_slots_cover_uploads_and_fail_fast_then_release(wav_audio: bytes) ->
         ).review_required
 
     asyncio.run(scenario())
+    assert "transcription_failure stage=capacity category=busy" in caplog.text
 
 
 def test_cancellation_releases_capacity(wav_audio: bytes) -> None:
@@ -262,3 +263,19 @@ def test_cancellation_releases_capacity(wav_audio: bytes) -> None:
         ).review_required
 
     asyncio.run(scenario())
+
+
+def test_missing_converter_logs_preparation_and_does_not_call_provider(caplog):
+    provider = Provider()
+    with pytest.raises(TranscriptionError) as error:
+        asyncio.run(
+            service(provider).transcribe(
+                chunks(b"synthetic-private-audio"), LanguageHint.UNKNOWN, media_type="audio/mp4"
+            )
+        )
+    assert error.value.status_code == 503 and provider.calls == []
+    assert (
+        "transcription_failure stage=conversion_preparation category=converter_missing"
+        in caplog.text
+    )
+    assert "synthetic-private-audio" not in caplog.text

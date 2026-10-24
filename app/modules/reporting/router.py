@@ -9,6 +9,7 @@ from app.api.dependencies import get_current_user, get_transcription_service
 from app.core.security import AuthenticatedUser
 from app.modules.reporting.schemas import TranscriptionResponse
 from app.modules.reporting.transcription.service import (
+    SUPPORTED_MEDIA_TYPES,
     InvalidAudio,
     TranscriptionError,
     TranscriptionService,
@@ -26,14 +27,17 @@ router = APIRouter(prefix="/reporting", tags=["reporting"])
         401: {"description": "Missing or invalid bearer access token."},
         403: {"description": "Verified token lacks the authenticated-user role."},
         413: {"description": "Audio exceeds permitted size or duration."},
-        415: {"description": "Unsupported audio media type or WAV encoding."},
+        415: {"description": "Unsupported audio media type, container, or encoding."},
         422: {"description": "Invalid audio, language hint, or no usable speech."},
         503: {"description": "Authentication, transcription, or capacity is unavailable."},
     },
     openapi_extra={
         "requestBody": {
             "required": True,
-            "content": {"audio/wav": {"schema": {"type": "string", "format": "binary"}}},
+            "content": {
+                media_type: {"schema": {"type": "string", "format": "binary"}}
+                for media_type in SUPPORTED_MEDIA_TYPES
+            },
         }
     },
 )
@@ -45,7 +49,8 @@ async def transcribe_audio(
 ) -> TranscriptionResponse:
     """Resolve authentication before manually consuming the raw request stream."""
     try:
-        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/wav":
+        media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if media_type not in SUPPORTED_MEDIA_TYPES:
             raise UnsupportedAudio
         length_header = request.headers.get("content-length")
         declared_length = None
@@ -56,7 +61,9 @@ async def transcribe_audio(
                 declared_length = int(length_header)
             except ValueError:
                 raise InvalidAudio from None
-        return await service.transcribe(request.stream(), language_hint, declared_length)
+        return await service.transcribe(
+            request.stream(), language_hint, declared_length, media_type=media_type
+        )
     except ClientDisconnect:
         raise HTTPException(status_code=422, detail=InvalidAudio.detail) from None
     except TranscriptionError as error:

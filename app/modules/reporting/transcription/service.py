@@ -1,6 +1,7 @@
 """Bounded WAV validation and draft transcription, without report persistence."""
 
 import asyncio
+import logging
 import struct
 import wave
 from collections.abc import AsyncIterable
@@ -10,6 +11,8 @@ from typing import Protocol
 
 from app.modules.reporting.schemas import TranscriptionResponse
 from app.schemas.report import LanguageHint
+
+logger = logging.getLogger(__name__)
 
 UPLOAD_TIMEOUT_SECONDS = 30.0
 # A thread-safe, non-waiting limit works across event loops and dependency instances.
@@ -34,18 +37,26 @@ class AudioTooLarge(TranscriptionError):
 
 class UnsupportedAudio(TranscriptionError):
     status_code = 415
-    detail = "Only audio/wav with supported 16-bit PCM audio is accepted."
+    detail = "Unsupported audio media type, container, or encoding."
+
+
+SUPPORTED_MEDIA_TYPES = ("audio/wav", "audio/mp4", "audio/x-m4a", "video/mp4", "audio/mpeg")
 
 
 def validate_transcript(text: object) -> str:
     """Provider text is never logged, truncated, or coerced into a transcript."""
     if not isinstance(text, str) or len(text) > 5000:
+        logger.warning("transcription_failure stage=transcript_validation category=invalid_text")
         raise TranscriptionError
     try:
         text.encode("utf-8")
     except UnicodeError:
+        logger.warning(
+            "transcription_failure stage=transcript_validation category=invalid_encoding"
+        )
         raise TranscriptionError from None
     if not text.strip():
+        logger.warning("transcription_failure stage=transcript_validation category=unusable_text")
         raise InvalidAudio
     return text
 
@@ -116,21 +127,38 @@ class Transcriber(Protocol):
     async def transcribe(self, audio: bytes, language_hint: LanguageHint) -> str: ...
 
 
+class AudioConverter(Protocol):
+    async def convert(
+        self, audio: bytes | bytearray, media_type: str, max_duration: float
+    ) -> bytes: ...
+
+
 class TranscriptionService:
-    def __init__(self, provider: Transcriber, max_bytes: int, max_duration: float) -> None:
+    def __init__(
+        self,
+        provider: Transcriber,
+        max_bytes: int,
+        max_duration: float,
+        converter: AudioConverter | None = None,
+    ) -> None:
         self._provider = provider
         self.max_bytes = max_bytes
         self.max_duration = max_duration
+        self._converter = converter
 
     async def transcribe(
         self,
         chunks: AsyncIterable[bytes],
         language_hint: LanguageHint,
         declared_length: int | None = None,
+        media_type: str = "audio/wav",
     ) -> TranscriptionResponse:
         if not _TRANSCRIPTION_SLOTS.acquire(blocking=False):
+            logger.warning("transcription_failure stage=capacity category=busy")
             raise TranscriptionError
         try:
+            if media_type not in SUPPORTED_MEDIA_TYPES:
+                raise UnsupportedAudio
             if declared_length is not None and declared_length > self.max_bytes:
                 raise AudioTooLarge
             buffer = bytearray()
@@ -144,7 +172,16 @@ class TranscriptionService:
                 raise InvalidAudio from None
             if declared_length is not None and len(buffer) != declared_length:
                 raise InvalidAudio
-            audio = validate_wav(bytes(buffer), self.max_bytes, self.max_duration)
+            if media_type == "audio/wav":
+                audio = validate_wav(bytes(buffer), self.max_bytes, self.max_duration)
+            else:
+                if self._converter is None:
+                    logger.warning(
+                        "transcription_failure stage=conversion_preparation "
+                        "category=converter_missing"
+                    )
+                    raise TranscriptionError
+                audio = await self._converter.convert(buffer, media_type, self.max_duration)
             buffer.clear()
             transcript = validate_transcript(await self._provider.transcribe(audio, language_hint))
             return TranscriptionResponse(

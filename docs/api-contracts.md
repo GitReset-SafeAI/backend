@@ -52,11 +52,26 @@ There is no JSON, multipart form, filename, audio URL, or account-ID input.
 `language_hint` accepts the shared `en`, `si`, `ta`, `si-Latn`, `mixed`, and
 `unknown` values and defaults to `unknown` when omitted.
 
-Accepted audio is little-endian RIFF/WAVE with PCM encoding tag 1, 16-bit samples,
-one or two channels, and a sample rate from 8000 through 48000 Hz. The initial
-limits are 10485760 bytes (10 MiB) and 60 seconds; both must be satisfied.
-Floating-point, compressed, WAVE_FORMAT_EXTENSIBLE, non-WAV, and other sample
-formats are unsupported. RIFF/chunk lengths, PCM byte rate, frame alignment,
+The request body remains raw bytes. Accepted `Content-Type` values are:
+
+| Media type | Accepted content |
+|---|---|
+| `audio/wav` | RIFF/WAVE PCM encoding tag 1, 16-bit samples, mono/stereo, 8–48 kHz |
+| `audio/mp4`, `audio/x-m4a` | M4A/MP4 container with an AAC audio stream, mono/stereo, 8–48 kHz |
+| `video/mp4` | MP4 containing an AAC audio stream; only the first audio stream is decoded |
+| `audio/mpeg` | MP3 audio, mono/stereo, 8–48 kHz |
+
+Use `audio/mpeg` for MP3, not `audio/mp3`. WebM, Ogg, FLAC, raw AAC, multipart,
+and JSON uploads are not supported. MIME types are declarations, not proof:
+FFprobe parses compressed inputs with restricted demuxers; invalid or
+mislabelled bytes fail validation. MP4 without audio is rejected. A container
+may include video, but no video frames are decoded or sent to Groq. The compressed
+upload temporarily includes any video bytes it contains; prefer audio-only input.
+
+All formats must satisfy 10485760 bytes (10 MiB) and 60 seconds of selected audio.
+The existing WAV path needs no FFmpeg and retains its validation. Floating-point,
+compressed WAV, WAVE_FORMAT_EXTENSIBLE, and other WAV sample formats remain
+unsupported. RIFF/chunk lengths, PCM byte rate, frame alignment,
 actual frame data, and duration are checked. Empty frames, truncated/inconsistent
 files, and digital silence are rejected. Digital silence detection does not prove
 that other audio contains speech; noise and background sounds can still confuse ASR.
@@ -67,19 +82,38 @@ rejected before reading. A supplied length that disagrees with the actual body i
 invalid. The application buffers only up to its byte limit; this does not impose
 a transport/proxy-level memory bound on individual ASGI receive messages. The
 upload deadline is 30 seconds. Two requests per process may occupy transcription
-slots, including upload, validation, and provider work; additional requests fail
+slots, including upload, probing, conversion, and provider work; additional requests fail
 immediately with 503. Slots are released on failure, timeout, or cancellation.
 Multiple workers have separate limits; this is not a distributed or per-user quota.
 
-The service removes unrelated WAV metadata chunks and sends only canonical PCM
-audio and necessary parameters to Groq `/audio/transcriptions`, using HTTPX.
-No SDK, codec binary, or new dependency is required. Credentials/base URL come
+Compressed uploads require FFmpeg and FFprobe on the backend's trusted `PATH`.
+See [runtime setup](../README.md#audio-conversion-runtime). Probing checks the first
+audio stream, codec, channels, sample rate, and its duration when available.
+MP4 probing reads container metadata without stream-info frame decoding; only
+AAC/MP3 decoders are allowed in the subsequent audio conversion process.
+Decode output is independently bounded to 16000 mono samples/second, 16-bit PCM,
+with at most `floor(max_duration * 16000) * 2` PCM bytes (1,920,000 at 60 seconds).
+Excess output causes rejection, never a silently truncated draft. FFmpeg also
+stops at the duration limit plus one second; the extra second is a rejection
+sentinel, not accepted audio. Probe JSON is capped at 16384 bytes. Each process
+uses one codec/filter thread and a 16 MiB individual-allocation limit; this is
+not a total process-memory sandbox. Network protocols and MOV external track
+references are disabled. Executables, arguments, and paths are backend controlled.
+
+One deadline covers probing and decoding. On timeout/cancellation the child is
+killed and reaped and its private temporary directory removed before capacity is
+released. Fixed audio mapping skips video, subtitles, and data. Only normalized
+16 kHz mono PCM WAV and necessary parameters reach the unchanged Groq adapter.
+Existing WAV requests retain their valid sample rate/channel count and have
+unrelated metadata stripped. No Python media dependency or SDK is added.
+Credentials/base URL come
 from `GROQ_API_KEY` and `LLM_BASE_URL`; the independent settings are:
 
 | Setting | Default | Validation |
 |---|---|---|
 | `TRANSCRIPTION_MODEL` | `whisper-large-v3` | Nonempty; whitespace-only values fail safely when used |
 | `TRANSCRIPTION_TIMEOUT_SECONDS` | `30` | Positive, finite seconds; bounds the complete provider operation |
+| `TRANSCRIPTION_CONVERSION_TIMEOUT_SECONDS` | `15` | Positive, finite seconds up to 30; bounds probing plus decoding |
 | `TRANSCRIPTION_MAX_BYTES` | `10485760` | Positive integer up to the approved 10 MiB ceiling |
 | `TRANSCRIPTION_MAX_DURATION_SECONDS` | `60` | Positive, finite seconds up to the approved 60-second ceiling |
 
@@ -116,16 +150,19 @@ that a human reviewed the draft. Existing translation-quality limitations remain
 |---|---|
 | `401`, `403` | Existing JWT credential/role rejection, before body consumption |
 | `413` | `Audio exceeds the permitted size or duration.` |
-| `415` | `Only audio/wav with supported 16-bit PCM audio is accepted.` |
+| `415` | `Unsupported audio media type, container, or encoding.` |
 | `422` | `Audio is invalid or contains no usable speech.`; includes upload timeout/disconnection |
 | `422` | Invalid query hint uses the existing redacted validation detail list |
-| `503` | `Audio transcription is unavailable.`; includes capacity, missing credentials, provider HTTP/timeout errors, malformed JSON, missing/non-string text, and excessive output |
+| `503` | `Audio transcription is unavailable.`; includes capacity, missing FFmpeg/FFprobe, process-launch errors, conversion timeout, missing credentials, provider HTTP/timeout errors, malformed JSON, missing/non-string text, and excessive output |
 | `503` | Existing authentication configuration/JWKS outages retain `Authentication is unavailable.` |
 
 All failures leave report storage untouched. Provider error bodies, tokens,
 credentials, audio bytes, and transcript contents are not included in errors/logs.
-The backend holds audio transiently in memory and does not write it to disk or
-Supabase. Provider retention is a separate policy question; see privacy guidance.
+WAV audio stays in memory. Compressed input uses a private temporary file for
+seekable parsing; converted audio stays in bounded memory. Temporary input is
+removed before provider invocation, including failure/timeout/cancellation paths.
+Audio and drafts are never saved in Supabase. This is request-scoped handling,
+not forensic secure erasure; see [privacy guidance](privacy-and-safety.md).
 
 ## Report creation: POST /api/v1/reports
 
