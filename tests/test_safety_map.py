@@ -141,3 +141,27 @@ def test_route_comparison_never_returns_a_bare_recommendation(client):
         assert 0 <= route["exposure_score"] <= 100
     # The caller is always told whether the geometry is real street routing.
     assert isinstance(body["uses_street_network"], bool)
+
+
+def test_place_search_rejects_a_too_short_query(client):
+    assert client.get("/api/v1/safety-map/places?q=a").status_code == 422
+
+
+def test_place_search_returns_public_place_names_only(client, monkeypatch):
+    async def fake_search(query: str, limit: int):
+        return [
+            {
+                "id": "N1",
+                "name": "Nugegoda",
+                "context": "Colombo District",
+                "coordinate": {"latitude": 6.87, "longitude": 79.888},
+            }
+        ]
+
+    monkeypatch.setattr("app.modules.safety_map.router.search_places", fake_search)
+    response = client.get("/api/v1/safety-map/places?q=nugegoda")
+
+    assert response.status_code == 200
+    for place in response.json():
+        # A place is reference data; nothing about a report may ride along.
+        assert set(place) == {"id", "name", "context", "coordinate"}

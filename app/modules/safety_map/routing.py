@@ -19,6 +19,10 @@ from app.modules.safety_map.hotspots import EARTH_RADIUS_M, Cluster
 OSRM_BASE_URL = "https://router.project-osrm.org"
 OSRM_TIMEOUT_SECONDS = 6.0
 
+# Identify the application to the public routing service, as its usage policy
+# asks.
+USER_AGENT = "SafeRouteAI/0.1 (student project; safety map journey planner)"
+
 WALKING_SPEED_MPS = 1.35
 
 # Route points are compared against hotspots every 25 m.
@@ -176,7 +180,9 @@ async def fetch_osrm_routes(
     one side so there are genuinely different streets to compare; those are
     still real street-network routes, not drawn lines.
     """
-    async with httpx.AsyncClient(timeout=OSRM_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(
+        timeout=OSRM_TIMEOUT_SECONDS, headers={"User-Agent": USER_AGENT}
+    ) as client:
         routes = await _osrm_request(client, [origin, destination], alternatives=True)
         if not routes:
             return []
