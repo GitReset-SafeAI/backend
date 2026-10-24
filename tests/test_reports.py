@@ -141,6 +141,59 @@ def test_creation_automatically_analyzes_saved_report(
     )
 
 
+@pytest.mark.parametrize("stage", ["analysis", "context"])
+def test_post_save_analysis_failure_still_returns_created_report(
+    application: FastAPI,
+    data_api: MockDataAPI,
+    payload: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    stage: str,
+) -> None:
+    analyzer = AsyncMock()
+    application.dependency_overrides[get_report_analyzer] = lambda: analyzer
+    payload["reported_time"] = "5 PM"
+
+    def fail(*args):
+        raise RuntimeError("dummy-sensitive-analysis-detail")
+
+    if stage == "context":
+        monkeypatch.setattr("app.modules.reporting.service.normalize_reported_time", fail)
+    else:
+        analyzer.analyze.side_effect = RuntimeError("dummy-sensitive-analysis-detail")
+
+    with TestClient(application) as client:
+        response = client.post("/api/v1/reports", json=payload)
+
+    assert response.status_code == 201
+    saved = ReportResponse.model_validate(response.json())
+    assert len(data_api.requests) == len(data_api.rows) == 1
+    assert saved.id == UUID(data_api.rows[0]["id"])
+    assert saved.original_text == payload["original_text"]
+    assert saved.translated_text == payload["original_text"]
+    assert saved.reported_time == "5 PM"
+    assert set(response.json()) == set(ReportResponse.model_fields)
+    if stage == "context":
+        analyzer.analyze.assert_not_awaited()
+    else:
+        analyzer.analyze.assert_awaited_once()
+
+    events = [record for record in caplog.records if record.name == "app.modules.reporting.service"]
+    assert len(events) == 1
+    assert events[0].getMessage() == "Automatic incident analysis failed after report persistence"
+    assert events[0].args == ()
+    assert events[0].exc_info is None and events[0].exc_text is None
+    assert events[0].stack_info is None
+    for sensitive in (
+        payload["original_text"],
+        "dummy-sensitive-analysis-detail",
+        "dummy-server-secret",
+        str(REPORTER_ID),
+    ):
+        assert sensitive not in caplog.text
+    assert "dummy-sensitive-analysis-detail" not in response.text
+
+
 @pytest.mark.parametrize("flag", [False, True])
 def test_creation_returns_saved_rapid_flag(
     application: FastAPI, data_api: MockDataAPI, payload: dict[str, object], flag: bool

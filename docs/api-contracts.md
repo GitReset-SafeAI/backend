@@ -183,9 +183,11 @@ for configuration, supported signing mode, key rotation, and remaining live setu
 | `language_hint` | Yes | `si`, `si-Latn`, `en`, `ta`, `mixed`, or `unknown` |
 | `latitude`, `longitude` | No | Both values or both null/omitted; latitude −90–90, longitude −180–180 |
 | `occurred_at` | No | Timezone-aware timestamp or null; no inferred occurrence time |
-| `lighting_condition`, `crowd_level`, `current_safety_status` | No | Nullable enums listed below |
+| `lighting_condition`, `current_safety_status` | No | Nullable enums listed below; omitted values default to null |
+| `reported_time` | No | Nullable validated string, 1-100 supplied characters; a supported clock time or period; omitted values default to null |
 
-Unknown fields are rejected, including `user_id`, `id`, and `submitted_at`.
+Unknown fields are rejected, including `user_id`, `id`, `submitted_at`, and
+`RAPID_SUBMISSIONS`. The removed `crowd_level` field is not supported, even as null.
 The backend derives ownership from the verified dependency; the database
 generates the report ID and submission timestamp. The optional-context example
 below is a valid request. All three context fields can be removed for a minimal
@@ -194,7 +196,7 @@ endpoint does not accept audio or perform transcription. Translation operates on
 the final text and finishes before the database INSERT.
 
 English (`en`) uses `original_text` unchanged as `translated_text`, without a
-provider call, even if a different legacy translation was supplied. For other
+translation-provider call, even if a different legacy translation was supplied. For other
 hints, a supplied translation remains accepted for compatibility; it is not
 independently checked for language, accuracy, or agreement with the original.
 The response has no provider-verification or translation-quality guarantee.
@@ -240,14 +242,40 @@ A successful authenticated insert returns HTTP 201 with this synthetic example b
   "longitude": null,
   "occurred_at": null,
   "lighting_condition": "PARTIALLY_LIT",
-  "crowd_level": "ALMOST_EMPTY",
+  "reported_time": "5 PM",
   "current_safety_status": "MAY_STILL_BE_IN_DANGER",
-  "submitted_at": "2026-10-23T14:00:00Z"
+  "submitted_at": "2026-10-23T14:00:00Z",
+  "RAPID_SUBMISSIONS": false
 }
 ```
 
-The response excludes the private database `user_id`. No list, retrieval, edit,
-delete, or moderation endpoint is provided.
+The response is a flat `ReportResponse`: all prepared report fields plus the
+database-generated UUID `id`, aware `submitted_at` normalized to UTC, and the
+backend-managed boolean `RAPID_SUBMISSIONS` review signal. Optional fields are
+included as null when omitted. The private database `user_id` is excluded.
+There is no nested analysis, submission-status field, or analysis-status field.
+No individual-report retrieval, edit, delete, or moderation endpoint is provided.
+
+### Automatic analysis after persistence
+
+Once the repository has returned a complete validated saved report, creation
+awaits one automatic incident analysis before returning HTTP 201. This is not a
+background job. It uses the saved English translation and report ID, maps the
+saved lighting answer to the analysis vocabulary, and normalizes `reported_time`.
+If that field is null, analysis instead derives a period from `occurred_at` in
+Sri Lankan time (UTC+05:30), when supplied. An explicit time takes priority;
+the report's trimmed time string stays unchanged, and an omitted time stays null.
+
+Recognized classifier failures retain the `needs_review` fallback. Analysis
+storage errors and unexpected ordinary exceptions during post-save analysis
+preparation or execution are logged with fixed messages only. They do not undo
+the saved report or change its HTTP 201 response. Translation and report
+persistence failures remain outside this best-effort boundary; cancellation is
+not swallowed.
+
+HTTP 201 confirms report persistence, not successful analysis. The frontend cannot
+determine analysis success from `ReportResponse` alone and must not label analysis
+completed merely because creation returned 201.
 
 | Status | Meaning |
 |---|---|
@@ -255,7 +283,7 @@ delete, or moderation endpoint is provided.
 | `401` | Missing/malformed bearer credentials or invalid/unsupported token; includes `WWW-Authenticate: Bearer` |
 | `403` | Verified token lacks the authenticated-user role |
 | `422` | Request validation failed; `detail` is a list of `loc`, `msg`, and `type`, without submitted input values or validation context |
-| `503` | Authentication, required translation, or storage is unavailable, or a provider response failed validation |
+| `503` | Authentication, required translation, or report storage is unavailable, or a required translation/storage response failed validation; post-save analysis failures do not produce this status |
 
 Authentication can pre-empt schema validation. Missing or invalid credentials return:
 
@@ -275,6 +303,24 @@ invalid response can occur after a database commit; the backend does not claim
 the report was unsaved and does not automatically retry creation. Idempotency is
 not implemented.
 
+## List owned reports: GET /api/v1/reports
+
+Requires the same verified Supabase bearer identity. Returns HTTP 200 with a
+**bare JSON array** of the `ReportResponse` objects described above, including
+`reported_time` as a string or null and `RAPID_SUBMISSIONS` as a boolean. There is
+no pagination envelope or nested analysis; no matching reports returns `[]`.
+Only the authenticated user's reports are selected, newest first by
+`submitted_at DESC, id DESC`.
+
+| Query parameter | Default | Validation |
+|---|---|---|
+| `limit` | `100` | Integer, 1-1000 |
+| `offset` | `0` | Integer, at least 0 |
+
+Authentication uses the same 401/403/503 responses, invalid pagination returns the
+redacted 422 detail list, and storage failure returns
+`{"detail": "Report storage is unavailable."}` with HTTP 503.
+
 ## Analyze a stored report: POST /api/v1/incident-ai/analyze
 
 Requires the same verified Supabase bearer identity as report creation. The
@@ -288,10 +334,18 @@ before classification. No public report retrieval endpoint is added.
 }
 ```
 
-`reported_time` and `street_lights` retain their existing optional analysis
-contracts. Legacy `translated_text` is optional/deprecated and ignored; the
-classifier always receives the owned report's stored English text. Caller-supplied
-owner fields are rejected. Reporting does not automatically trigger classification.
+Manual analysis remains available for intentional re-analysis or a controlled
+retry. Clients should not call it automatically after report creation: creation
+already invokes analysis, and another call can create another analysis record.
+
+`reported_time` is an optional nullable string, 1-500 characters before
+normalization to a time period. `street_lights` is optional/nullable and accepts
+`well_lit`, `partially_lit`, `poorly_lit_or_dark`, `day_light`, or `not_sure`.
+Unlike the automatic creation path, this endpoint loads only the saved
+translation; it does not load the report's saved time or lighting, so optional
+analysis context must be supplied separately. Legacy `translated_text` is
+optional/deprecated and ignored; the classifier always receives the owned
+report's stored English text. Caller-supplied owner fields are rejected.
 
 The existing `IncidentAnalysis` response and HTTP 200 success contract are unchanged.
 Missing/invalid authentication uses 401, insufficient role 403, and unavailable
@@ -317,54 +371,52 @@ and severity logic remain separate from report translation.
 
 ## Optional report context
 
-`app/schemas/report.py` defines `ReportSubmission` and `ReportResponse`. The
-following context fields are independently optional and nullable in both models.
-Omitting them preserves compatibility with existing report payloads. Omitted
-fields default to `null` in normal model serialisation; explicitly choosing an
-unknown/prefer-not-to-say value preserves that enum value rather than replacing
-it with `null`.
+`ReportCreateRequest`, `ReportSubmission`, and `ReportResponse` share optional,
+nullable `lighting_condition`, `reported_time`, and `current_safety_status`.
+Omission and explicit null become null in normal response serialization and
+storage. An explicit enum choice remains distinct from null.
 
-| Field | Allowed values, in addition to `null` |
+| Field | Values in addition to null |
 |---|---|
 | `lighting_condition` | `WELL_LIT`, `PARTIALLY_LIT`, `POORLY_LIT_OR_DARK`, `DAYLIGHT`, `UNKNOWN_OR_PREFER_NOT_TO_SAY` |
-| `crowd_level` | `ALMOST_EMPTY`, `NOT_VERY_CROWDED`, `MODERATELY_CROWDED`, `VERY_CROWDED`, `UNKNOWN_OR_PREFER_NOT_TO_SAY` |
+| `reported_time` | Validated string, not an enum; 1-100 supplied characters, with surrounding whitespace removed after validation |
 | `current_safety_status` | `SAFE_NOW`, `UNSURE`, `MAY_STILL_BE_IN_DANGER`, `PREFER_NOT_TO_SAY` |
 
-Values are case-sensitive. Invalid values raise the same Pydantic validation
-errors as the existing enums. The other report validation rules are unchanged.
+Lighting and current-safety enum values are case-sensitive. Time accepts the
+case-insensitive period names `morning`, `afternoon`, `evening`, `night`,
+`late_night`, and `not_sure`, or clock notation such as `02:30`, `17:30`,
+`5 PM`, or `5.30 PM`. Hours/minutes are range-checked. Ambiguous unqualified
+times such as `5.00` normalize to `not_sure` for analysis rather than guessing
+AM/PM. Use explicit AM/PM when possible. Invalid or blank time strings return 422.
 
-Synthetic example of a valid submission model, with all three fields supplied:
+Validation uses the shared time normalizer but stores/returns the trimmed
+supplied string, so `5 PM` remains `5 PM` in a report and becomes `evening` only
+in analysis. `occurred_at` remains a separate optional timezone-aware timestamp;
+neither field populates the other, and they are not cross-checked for agreement.
+
+Synthetic valid creation request with all three context fields:
 
 ```json
 {
   "original_text": "Synthetic demo: someone followed me after I left the bus.",
-  "translated_text": "Synthetic demo: someone followed me after I left the bus.",
   "input_method": "text",
   "language_hint": "en",
   "lighting_condition": "PARTIALLY_LIT",
-  "crowd_level": "ALMOST_EMPTY",
+  "reported_time": "5 PM",
   "current_safety_status": "MAY_STILL_BE_IN_DANGER"
 }
 ```
 
-Removing any or all of the three context fields, or setting them to `null`, is
-also valid. `ReportResponse` inherits the optional fields and serialises enum
-values as the strings above in JSON, while retaining its required server-supplied
-`id` and `submitted_at` fields.
+Removing any or all three context fields, or setting them to null, is valid.
+These values remain private self-reported context. Current safety is independent
+of AI classification or severity. Selecting `MAY_STILL_BE_IN_DANGER` does not
+contact emergency services, dispatch assistance, send notifications, or enable
+location tracking. The fields are not approved for public map responses.
 
-These values are private, self-reported context. Current safety describes the
-user's stated situation when reporting and is independent of AI classification
-or severity. Selecting `MAY_STILL_BE_IN_DANGER` does not contact emergency
-services, dispatch assistance, send notifications, or enable location tracking.
-The fields are not approved for public map responses.
-
-The creation repository sends every supported schema field, including these
-nullable fields, to the Data API. Omission and explicit null both become SQL
-NULL; an explicit enum choice stays distinct from null. The context migration
-must be applied before storage can support these fields. Report creation requires
-verified authentication and configured storage. The health endpoint is unchanged.
-
-Reporting, classification, severity, anomaly detection, hotspots, and route
+The repository sends all supported report fields to the Data API. The existing
+context migrations and migration `20261024000300` must be deployed for the
+current persistence contract. This document does not establish which migrations
+are applied to a target database.
 
 ## Safety map (Module 4) — provisional
 
@@ -467,28 +519,21 @@ reports were understood.
 
 ### Reports and location
 
-`incident_ai_analyses` has no coordinates, so
-`20261023000400_create_incident_reports.sql` proposes the reports table that
-`report_id` points at, with a PostGIS `geography(Point, 4326)` column.
+`incident_ai_analyses` has no coordinates. The existing `public.reports` table
+stores optional scalar `latitude` and `longitude`, with paired-coordinate
+validation. It also stores the original and prepared English text, required
+input method and language hint, optional occurrence timestamp and context, and
+the backend-managed review flag. No additional report table or location field is
+part of this contract.
 
-It is written for reporting rather than only for the map: the report body,
-input method, report language, the optional time, location and context
-answers, and the integrity columns. Everything except the body is optional,
-because a report must not be rejected for unanswered optional questions. A
-report with no location is analysed normally; it simply cannot contribute to an
-area. Context columns reuse the `incident_ai_analyses` vocabularies, so a value
-a reporter gave and a value the AI inferred are directly comparable, and the
-view prefers the reporter's answer where both exist.
+Automatic analysis uses the persisted report; a report without coordinates can
+still be analyzed. The `map_eligible_incidents` view joins reports and completed
+analyses by report ID and requires coordinates. It does not expose report text
+or reporter identity and reads normalized time and lighting from analysis rows.
 
-No foreign key is declared between the two tables yet, so the modules can be
-developed and seeded independently. Add one once both write through the same
-path. The reporting module owns this table and should extend it rather than
-replace it.
-
-`supabase/seed.sql` loads the same synthetic dataset into those tables, marked
-`is_synthetic` so demo rows can always be told apart and removed. Regenerate
-both it and the JSON with
-`python sample-data/generate_synthetic_reports.py`.
+`supabase/seed.sql` and the generator use synthetic demonstration data. They do
+not add an `is_synthetic` field to the report API. Do not run the seed or
+generator against a live database as part of report submission.
 
 ### Open items
 
