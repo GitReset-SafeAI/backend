@@ -16,6 +16,10 @@ from app.core.security import (
     InvalidCredentials,
     get_token_verifier,
 )
+from app.modules.reporting.service import ReportService
+from app.modules.reporting.transcription.provider import GroqTranscriber
+from app.modules.reporting.transcription.service import TranscriptionService
+from app.modules.reporting.transcription.translation import GroqReportTranslator
 from app.repositories.reports import ReportRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -80,3 +84,35 @@ async def get_report_repository(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Report storage is unavailable.",
         ) from None
+
+
+def get_report_service(
+    repository: Annotated[ReportRepository, Depends(get_report_repository)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ReportService:
+    """Keep translation credentials separate from verified identity and database access."""
+    return ReportService(
+        repository,
+        GroqReportTranslator(
+            api_key=settings.groq_api_key.get_secret_value(),
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            timeout_seconds=settings.llm_timeout_seconds,
+        ),
+    )
+
+
+def get_transcription_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> TranscriptionService:
+    """Draft transcription needs provider settings, never a persistence dependency."""
+    return TranscriptionService(
+        GroqTranscriber(
+            api_key=settings.groq_api_key.get_secret_value(),
+            model=settings.transcription_model,
+            base_url=settings.llm_base_url,
+            timeout_seconds=settings.transcription_timeout_seconds,
+        ),
+        max_bytes=settings.transcription_max_bytes,
+        max_duration=settings.transcription_max_duration_seconds,
+    )

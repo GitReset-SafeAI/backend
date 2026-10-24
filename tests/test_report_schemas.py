@@ -12,6 +12,7 @@ from app.schemas.report import (
     InputMethod,
     LanguageHint,
     LightingCondition,
+    ReportCreateRequest,
     ReportResponse,
     ReportSubmission,
 )
@@ -35,6 +36,29 @@ def response_data(submission_data: dict[str, object]) -> dict[str, object]:
         "id": "4bf9b65c-9451-40e0-a40c-e26376a3a5d9",
         "submitted_at": "2026-10-23T04:30:00Z",
     }
+
+
+def test_creation_can_omit_translation_without_relaxing_saved_contract(
+    submission_data: dict[str, object],
+) -> None:
+    del submission_data["translated_text"]
+    creation = ReportCreateRequest.model_validate(submission_data)
+    assert creation.translated_text is None
+    assert creation.original_text == submission_data["original_text"]
+    with pytest.raises(ValidationError):
+        ReportSubmission.model_validate(submission_data)
+    schema = ReportCreateRequest.model_json_schema()
+    assert "translated_text" not in schema["required"]
+    assert schema["properties"]["translated_text"]["type"] == "string"
+
+
+@pytest.mark.parametrize("value", [None, "", " \t\n", "a" * 5001])
+def test_creation_rejects_invalid_supplied_translation(
+    submission_data: dict[str, object], value: str | None
+) -> None:
+    submission_data["translated_text"] = value
+    with pytest.raises(ValidationError):
+        ReportCreateRequest.model_validate(submission_data)
 
 
 def test_english_submission(submission_data: dict[str, object]) -> None:

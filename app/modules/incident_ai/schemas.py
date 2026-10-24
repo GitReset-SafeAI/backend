@@ -15,7 +15,13 @@ TimePeriod = Literal["morning", "afternoon", "evening", "night", "late_night", "
 class AnalyzeIncidentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     report_id: UUID
-    translated_text: str = Field(min_length=1, max_length=5000)
+    translated_text: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=5000,
+        deprecated=True,
+        description="Legacy input, ignored. Analysis uses the owned report's stored translation.",
+    )
     reported_time: str | None = Field(default=None, min_length=1, max_length=500)
     street_lights: StreetLights | None = None
 

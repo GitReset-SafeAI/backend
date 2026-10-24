@@ -1,14 +1,17 @@
 """Incident AI HTTP routes used by the reporting module."""
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.api.dependencies import get_report_repository, require_verified_reporter_id
 from app.core.config import get_settings
 from app.modules.incident_ai.classifier import GroqIncidentClassifier
 from app.modules.incident_ai.repository import AnalysisStorageError, SupabaseAnalysisRepository
 from app.modules.incident_ai.schemas import AnalyzeIncidentRequest, IncidentAnalysis
 from app.modules.incident_ai.service import IncidentAnalysisService
+from app.repositories.reports import ReportPersistenceError, ReportRepository
 
 router = APIRouter(prefix="/incident-ai", tags=["incident_ai"])
 
@@ -50,13 +53,21 @@ def get_incident_analysis_service() -> IncidentAnalysisService:
 @router.post("/analyze", response_model=IncidentAnalysis)
 async def analyze_incident(
     request: AnalyzeIncidentRequest,
+    reporter_id: Annotated[UUID, Depends(require_verified_reporter_id)],
+    reports: Annotated[ReportRepository, Depends(get_report_repository)],
     service: Annotated[IncidentAnalysisService, Depends(get_incident_analysis_service)],
 ) -> IncidentAnalysis:
-    """Convert translated English report text into a provisional structured record."""
+    """Analyze the authenticated owner's stored English text, never caller replacement text."""
 
     try:
+        translated_text = await reports.get_owned_translation(request.report_id, reporter_id)
+    except ReportPersistenceError:
+        raise HTTPException(status_code=503, detail="Report storage is unavailable.") from None
+    if translated_text is None:
+        raise HTTPException(status_code=404, detail="Report not found.")
+    try:
         return await service.analyze(
-            request.translated_text,
+            translated_text,
             request.report_id,
             request.reported_time,
             request.street_lights,
