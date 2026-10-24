@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.config import get_settings
 from app.modules.incident_ai.classifier import GroqIncidentClassifier
@@ -11,6 +11,26 @@ from app.modules.incident_ai.schemas import AnalyzeIncidentRequest, IncidentAnal
 from app.modules.incident_ai.service import IncidentAnalysisService
 
 router = APIRouter(prefix="/incident-ai", tags=["incident_ai"])
+
+
+def get_analysis_repository() -> SupabaseAnalysisRepository:
+    settings = get_settings()
+    return SupabaseAnalysisRepository(
+        settings.supabase_url, settings.supabase_service_role_key.get_secret_value()
+    )
+
+
+@router.get("/analyses", response_model=list[dict])
+async def list_analyses(
+    repository: Annotated[SupabaseAnalysisRepository, Depends(get_analysis_repository)],
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[dict]:
+    """Retrieve all stored columns, newest first; increase offset for subsequent pages."""
+    try:
+        return await repository.list_analyses(limit, offset)
+    except AnalysisStorageError as exc:
+        raise HTTPException(status_code=503, detail="Could not retrieve incident analyses") from exc
 
 
 def get_incident_analysis_service() -> IncidentAnalysisService:
