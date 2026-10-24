@@ -169,6 +169,7 @@ class AuthHarness:
             **json.loads(request.content),
             "id": "33333333-3333-4333-8333-333333333333",
             "submitted_at": "2026-10-23T14:00:00Z",
+            "RAPID_SUBMISSIONS": False,
         }
         self.rows.append(row.copy())
         if self.owner_override:
