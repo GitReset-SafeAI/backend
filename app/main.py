@@ -1,9 +1,12 @@
 """FastAPI application entry point."""
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
-from app.api.router import router as api_router
+from app.api.routes.health import router as health_router
+from app.api.routes.reports import router as reports_router
 from app.core.config import get_settings
+from app.core.errors import validation_error_handler
 
 
 def create_app() -> FastAPI:
@@ -18,7 +21,9 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if development else None,
         openapi_url="/openapi.json" if development else None,
     )
-    application.include_router(api_router, prefix="/api/v1")
+    application.include_router(health_router, prefix="/api/v1")
+    application.include_router(reports_router, prefix="/api/v1")
+    application.add_exception_handler(RequestValidationError, validation_error_handler)
     return application
 
 

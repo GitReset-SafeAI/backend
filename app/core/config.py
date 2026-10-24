@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "staging", "production"] = "development"
     app_version: str = "0.1.0"
     supabase_url: str = ""
+    supabase_publishable_key: SecretStr = SecretStr("")
+    supabase_secret_key: SecretStr = SecretStr("")
+    supabase_jwks_url: str = ""
     supabase_anon_key: SecretStr = SecretStr("")
     supabase_service_role_key: SecretStr = SecretStr("")
     llm_api_key: SecretStr = SecretStr("")
