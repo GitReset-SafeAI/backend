@@ -32,7 +32,7 @@ PAYLOAD = {
     "analysis_status": "completed",
     "IncidentCategory": "UNWANTED_FOLLOWING",
     "SafetyConcernCategory": "POOR_STREET_LIGHTING",
-    "reported_time": "last night",
+    "reported_time": "night",
     "street_lights": "poorly_lit_or_dark",
     "immediate_danger_reported": None,
     "severity": 6,
@@ -131,8 +131,8 @@ def test_database_failure_is_not_reported_as_success() -> None:
 @pytest.mark.parametrize(
     "supplied",
     [
-        {"reported_time": "today at noon", "street_lights": "day_light"},
-        {"reported_time": "today at noon"},
+        {"reported_time": "afternoon", "street_lights": "day_light"},
+        {"reported_time": "afternoon"},
         {"street_lights": "not_sure"},
     ],
 )
@@ -156,7 +156,7 @@ def test_supplied_details_override_model_and_are_saved(failed: bool, supplied: d
     for field, value in supplied.items():
         assert result[field] == value
     if "reported_time" not in supplied:
-        assert result["reported_time"] == (None if failed else PAYLOAD["reported_time"])
+        assert result["reported_time"] == ("not_sure" if failed else PAYLOAD["reported_time"])
     if "street_lights" not in supplied:
         assert result["street_lights"] == ("not_sure" if failed else PAYLOAD["street_lights"])
     assert repository.saved[0].model_dump(mode="json") == result

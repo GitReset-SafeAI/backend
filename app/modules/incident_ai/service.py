@@ -51,7 +51,7 @@ class IncidentAnalysisService:
                 analysis_status="needs_review",
                 IncidentCategory="UNCLEAR",
                 SafetyConcernCategory=None,
-                reported_time=None,
+                reported_time="not_sure",
                 street_lights="not_sure",
                 immediate_danger_reported=None,
                 severity=None,

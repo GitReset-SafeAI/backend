@@ -55,7 +55,13 @@ Severity is an integer 0-10:
 5-6 unwanted contact, repeated following or serious environmental concern;
 7-8 threats, coercion, stalking or restraint;
 9-10 ongoing assault, immediate life threat or immediate weapon threat.
-reported_time is the reported time as text or null if absent.
+reported_time is an enum, never raw text or clock time:
+morning = 05:00-11:59; afternoon = 12:00-16:59; evening = 17:00-20:59;
+night = 21:00-23:59; late_night = 00:00-04:59; not_sure = absent or ambiguous.
+Examples: 5 AM -> morning; 5 PM or 17:00 -> evening; 12 AM -> late_night;
+12 PM -> afternoon; 23:00 -> night. Generic night maps to night.
+Bare 5.00 is ambiguous without AM/PM or time-of-day context: use not_sure.
+Do not guess AM/PM. Explicit 24-hour 05:00 maps to morning.
 Input may be a JSON object with report_text and reporter_supplied_details.
 Non-null reporter_supplied_details are authoritative and take priority over report_text.
 Use supplied reported_time and street_lights when available, and consider them when
