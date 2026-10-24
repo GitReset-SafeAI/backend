@@ -11,9 +11,14 @@ class Classifier(Protocol):
     async def classify(self, translated_text: str) -> AnalysisOutput: ...
 
 
+class AnalysisRepository(Protocol):
+    async def save(self, analysis: IncidentAnalysis) -> IncidentAnalysis: ...
+
+
 class IncidentAnalysisService:
-    def __init__(self, classifier: Classifier) -> None:
+    def __init__(self, classifier: Classifier, repository: AnalysisRepository) -> None:
         self._classifier = classifier
+        self._repository = repository
 
     async def analyze(self, translated_text: str, report_id: UUID) -> IncidentAnalysis:
         try:
@@ -31,4 +36,5 @@ class IncidentAnalysisService:
                     summary=None, reported_behaviours=[], reported_location=None
                 ),
             )
-        return IncidentAnalysis(report_id=report_id, **output.model_dump())
+        analysis = IncidentAnalysis(report_id=report_id, **output.model_dump())
+        return await self._repository.save(analysis)

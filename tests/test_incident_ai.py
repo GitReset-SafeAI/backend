@@ -8,8 +8,9 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.modules.incident_ai.classifier import ClassificationError
+from app.modules.incident_ai.repository import AnalysisStorageError
 from app.modules.incident_ai.router import get_incident_analysis_service
-from app.modules.incident_ai.schemas import AnalysisOutput
+from app.modules.incident_ai.schemas import AnalysisOutput, IncidentAnalysis
 from app.modules.incident_ai.service import IncidentAnalysisService
 
 REPORT_ID = "00000000-0000-0000-0000-000000000001"
@@ -52,12 +53,22 @@ class FailingClassifier:
         raise ClassificationError("unavailable")
 
 
+class FakeRepository:
+    def __init__(self) -> None:
+        self.saved: list[IncidentAnalysis] = []
+
+    async def save(self, analysis: IncidentAnalysis) -> IncidentAnalysis:
+        self.saved.append(analysis)
+        return analysis
+
+
 @pytest.mark.parametrize("failed", [False, True])
 def test_response_matches_database_columns(failed: bool) -> None:
     app = create_app()
     classifier = FailingClassifier() if failed else FakeClassifier()
+    repository = FakeRepository()
     app.dependency_overrides[get_incident_analysis_service] = lambda: IncidentAnalysisService(
-        classifier
+        classifier, repository
     )
     with TestClient(app) as client:
         response = client.post(
@@ -65,6 +76,8 @@ def test_response_matches_database_columns(failed: bool) -> None:
             json={"report_id": REPORT_ID, "translated_text": "Someone followed me on a dark road."},
         )
     assert response.status_code == 200
+    assert len(repository.saved) == 1
+    assert repository.saved[0].model_dump(mode="json") == response.json()
     result = response.json()
     assert set(result) == FIELDS
     assert result["report_id"] == REPORT_ID
@@ -92,3 +105,21 @@ def test_request_requires_report_id() -> None:
             ).status_code
             == 422
         )
+
+
+def test_database_failure_is_not_reported_as_success() -> None:
+    class FailedRepository:
+        async def save(self, analysis: IncidentAnalysis) -> IncidentAnalysis:
+            raise AnalysisStorageError("unavailable")
+
+    app = create_app()
+    app.dependency_overrides[get_incident_analysis_service] = lambda: IncidentAnalysisService(
+        FakeClassifier(), FailedRepository()
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/incident-ai/analyze",
+            json={"report_id": REPORT_ID, "translated_text": "Someone followed me."},
+        )
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Could not save incident analysis"}
