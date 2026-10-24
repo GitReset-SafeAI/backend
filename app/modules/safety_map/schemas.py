@@ -10,8 +10,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-TimeBucket = Literal["day", "evening", "night"]
-TimeBucketFilter = Literal["day", "evening", "night", "all"]
+# Mirrors incident_ai_analyses.reported_time, so the map filter and the stored
+# value are the same vocabulary and need no translation between modules.
+TimePeriod = Literal["morning", "afternoon", "evening", "night", "late_night", "not_sure"]
+TimePeriodFilter = Literal[
+    "all", "morning", "afternoon", "evening", "night", "late_night", "not_sure"
+]
 
 # How well the underlying reports support what is published. Absence of reports
 # is "insufficient" evidence, never an indication of safety.
@@ -58,6 +62,13 @@ ELIGIBLE_ANALYSIS_STATUS = "completed"
 # genuine report the AI read poorly is quietly discounted, not deleted.
 CONFIDENCE_FLOOR = 0.0
 
+# incident_ai_analyses.street_lights. Only poorly_lit_or_dark is treated as a
+# lighting concern; not_sure and day_light say nothing about the location.
+POORLY_LIT = "poorly_lit_or_dark"
+# Share of an area's reports that must mention poor lighting before the map
+# shows it as a lighting concern.
+POOR_LIGHTING_SHARE = 0.5
+
 
 class Coordinate(BaseModel):
     """Explicit latitude/longitude. Never a GeoJSON ``[lon, lat]`` pair."""
@@ -76,7 +87,7 @@ class Hotspot(BaseModel):
     intensity: Annotated[float, Field(ge=0, le=1)]
     top_incident_categories: Annotated[list[str], Field(max_length=3)]
     top_safety_concerns: Annotated[list[str], Field(max_length=3)]
-    peak_time_bucket: TimeBucket | None
+    peak_time_period: TimePeriod | None
     most_recent_report_days_ago: Annotated[int, Field(ge=0)]
     # Mean AI confidence across the reports behind this area. needs_review
     # analyses are excluded upstream and never reach here.
@@ -121,7 +132,7 @@ class Route(BaseModel):
 class RouteComparisonRequest(BaseModel):
     origin: Coordinate
     destination: Coordinate
-    time_bucket: TimeBucketFilter = "all"
+    time_period: TimePeriodFilter = "all"
 
 
 class RouteComparisonResponse(BaseModel):
@@ -130,3 +141,6 @@ class RouteComparisonResponse(BaseModel):
     # detour. Recommending nothing is a valid answer, not a failure.
     recommended_route_id: str | None
     evidence_level: EvidenceLevel
+    # False when the routing service could not be reached and the geometry is
+    # a straight-line approximation rather than real walking directions.
+    uses_street_network: bool
