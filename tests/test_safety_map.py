@@ -3,9 +3,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import create_app
 from app.modules.safety_map.hotspots import find_hotspots
 from app.modules.safety_map.repository import EligibleIncident
+from app.modules.safety_map.router import get_service
 from app.modules.safety_map.routing import (
     _haversine_m,
     avoidance_waypoints,
@@ -15,6 +16,7 @@ from app.modules.safety_map.routing import (
     score_route,
 )
 from app.modules.safety_map.schemas import MIN_HOTSPOT_RADIUS_M, MIN_REPORTS_PER_HOTSPOT
+from app.modules.safety_map.service import SafetyMapService
 
 COLOMBO_BBOX = "79.80,6.80,79.95,6.96"
 
@@ -34,7 +36,9 @@ def incident(latitude, longitude, **overrides) -> EligibleIncident:
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    application = create_app()
+    application.dependency_overrides[get_service] = lambda: SafetyMapService("", "")
+    return TestClient(application)
 
 
 def test_hotspots_endpoint_returns_aggregated_areas(client):

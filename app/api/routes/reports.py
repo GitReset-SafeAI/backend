@@ -3,15 +3,33 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.dependencies import get_report_service, require_verified_reporter_id
+from app.api.dependencies import (
+    get_report_repository,
+    get_report_service,
+    require_verified_reporter_id,
+)
 from app.modules.reporting.service import ReportService
 from app.modules.reporting.transcription.translation import TranslationError
-from app.repositories.reports import ReportPersistenceError
+from app.repositories.reports import ReportPersistenceError, ReportRepository
 from app.schemas.report import ReportCreateRequest, ReportResponse
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+@router.get("", response_model=list[ReportResponse])
+async def list_reports(
+    reporter_id: Annotated[UUID, Depends(require_verified_reporter_id)],
+    repository: Annotated[ReportRepository, Depends(get_report_repository)],
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[ReportResponse]:
+    """List the authenticated user's reports, newest first."""
+    try:
+        return await repository.list_owned(reporter_id, limit, offset)
+    except ReportPersistenceError:
+        raise HTTPException(status_code=503, detail="Report storage is unavailable.") from None
 
 
 @router.post(
