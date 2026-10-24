@@ -20,7 +20,10 @@ class Settings(BaseSettings):
     supabase_jwks_url: str = ""
     supabase_anon_key: SecretStr = SecretStr("")
     supabase_service_role_key: SecretStr = SecretStr("")
-    llm_api_key: SecretStr = SecretStr("")
+    groq_api_key: SecretStr = SecretStr("")
+    llm_model: str = "openai/gpt-oss-20b"
+    llm_base_url: str = "https://api.groq.com/openai/v1"
+    llm_timeout_seconds: float = 30.0
 
 
 @lru_cache
