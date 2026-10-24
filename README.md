@@ -147,3 +147,7 @@ For parallel development, agree on contracts in [API contracts](docs/api-contrac
 keep feature changes focused in their layers, and run checks before opening a PR.
 Review [privacy and safety](docs/privacy-and-safety.md) before introducing sensitive
 data and [sample-data guidance](sample-data/README.md) before adding demo fixtures.
+
+## License
+
+Released under the [MIT License](LICENSE).
