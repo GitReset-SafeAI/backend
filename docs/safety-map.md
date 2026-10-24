@@ -68,9 +68,9 @@ with `python sample-data/generate_synthetic_reports.py`.
 rather than a degree approximation that stretches with latitude:
 
 ```python
-eps = CLUSTER_EPS_M / EARTH_RADIUS_M     # 150 m, expressed in radians
-min_samples = MIN_REPORTS_PER_HOTSPOT    # 3
-metric = "haversine"                     # coordinates passed in radians
+eps = CLUSTER_EPS_M / EARTH_RADIUS_M  # 150 m, expressed in radians
+min_samples = MIN_REPORTS_PER_HOTSPOT  # 3
+metric = "haversine"  # coordinates passed in radians
 ```
 
 `min_samples` is deliberately the same number as the publication floor, so an
