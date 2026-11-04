@@ -24,3 +24,4 @@ class ContactInput(BaseModel):
 
 class EmergencyContact(ContactInput):
     id: UUID
+    slot: int = Field(ge=0, le=4, strict=True)

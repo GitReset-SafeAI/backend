@@ -22,7 +22,7 @@ PATH = "/api/v1/emergency-contacts"
 @pytest.fixture
 def contacts_api(monkeypatch):
     calls = []
-    state = {"status": 200, "rows": [{"id": CONTACT, "user_id": OWNER, **INPUT}]}
+    state = {"status": 200, "rows": [{"id": CONTACT, "user_id": OWNER, "slot": 0, **INPUT}]}
     original = httpx.AsyncClient
 
     def handle(request):
@@ -58,17 +58,17 @@ def test_list_is_user_scoped_and_private(contacts_api):
     api, calls, _ = contacts_api
     response = api.get(PATH)
     assert response.status_code == 200
-    assert response.json() == [{"id": CONTACT, **INPUT}]
+    assert response.json() == [{"id": CONTACT, "slot": 0, **INPUT}]
     assert response.headers["cache-control"] == "no-store"
     assert calls[0].url.params["user_id"] == f"eq.{OWNER}"
-    assert calls[0].url.params["order"] == "primary_at.desc,created_at.asc,id.asc"
+    assert calls[0].url.params["order"] == "slot.asc"
 
 
 def test_add_uses_user_scoped_atomic_allocation(contacts_api):
     api, calls, _ = contacts_api
     response = api.post(PATH, json=INPUT)
     assert response.status_code == 201
-    assert response.json() == {"id": CONTACT, **INPUT}
+    assert response.json() == {"id": CONTACT, "slot": 0, **INPUT}
     assert calls[0].url.path == "/rest/v1/rpc/add_emergency_contact"
     assert json.loads(calls[0].content) == {
         "p_name": "Amma",
@@ -89,11 +89,27 @@ def test_changes_filter_both_owner_and_contact(contacts_api, method, suffix, bod
     api, calls, _ = contacts_api
     response = api.request(method, PATH + suffix, **({"json": body} if body else {}))
     assert response.status_code == (200 if method == "PATCH" else 204)
-    assert calls[0].url.params["user_id"] == f"eq.{OWNER}"
-    assert calls[0].url.params["id"] == f"eq.{CONTACT}"
-    if suffix.endswith("primary"):
-        assert calls[0].method == "PATCH"
-        assert set(json.loads(calls[0].content)) == {"primary_at"}
+    if method == "PATCH":
+        assert calls[0].url.params["user_id"] == f"eq.{OWNER}"
+        assert calls[0].url.params["id"] == f"eq.{CONTACT}"
+    else:
+        operation = "make_primary" if suffix.endswith("primary") else "remove"
+        assert calls[0].url.path == f"/rest/v1/rpc/{operation}_emergency_contact"
+        assert calls[0].method == "POST"
+        assert json.loads(calls[0].content) == {"p_contact_id": CONTACT}
+
+
+def test_primary_selection_must_return_slot_zero(contacts_api):
+    api, _, state = contacts_api
+    state["rows"][0]["slot"] = 2
+    assert api.post(f"{PATH}/{CONTACT}/primary").status_code == 503
+
+
+@pytest.mark.parametrize("slot", [-1, 5, "0", None])
+def test_storage_slot_must_be_a_valid_integer(contacts_api, slot):
+    api, _, state = contacts_api
+    state["rows"][0]["slot"] = slot
+    assert api.get(PATH).status_code == 503
 
 
 @pytest.mark.parametrize(
