@@ -55,6 +55,8 @@ All routes are under `/api/v1`. "Auth" means a Supabase bearer token (`Authoriza
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `GET /health` | none | Process health, no external calls |
+| `POST /authentication/sign-up` | none | Register through Supabase Auth; empty 204 response, then confirm email and log in |
+| `POST /authentication/sign-in` | none | Email/password login; returns access and refresh tokens |
 | `POST /authentication/nic-classification` | token | Parse the gender indicator from a NIC; not identity verification, nothing stored |
 | `POST /reports` | token | Create a report; translates if needed, then runs AI analysis |
 | `GET /reports` | token | List the caller's own reports (paged) |
