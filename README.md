@@ -55,7 +55,14 @@ All routes are under `/api/v1`. "Auth" means a Supabase bearer token (`Authoriza
 | Method and path | Auth | Purpose |
 | --- | --- | --- |
 | `GET /health` | none | Process health, no external calls |
+| `POST /authentication/sign-up` | none | Register through Supabase Auth; empty 204 response, then confirm email and log in |
+| `POST /authentication/sign-in` | none | Email/password login; returns access and refresh tokens |
 | `POST /authentication/nic-classification` | token | Parse the gender indicator from a NIC; not identity verification, nothing stored |
+| `GET/POST /emergency-contacts` | token | List or add the caller's private emergency contacts (maximum five; [Supabase setup](docs/emergency-contacts.md)) |
+| `PATCH/DELETE /emergency-contacts/{id}` | token | Edit or remove an owned contact |
+| `POST /emergency-contacts/{id}/primary` | token | Choose the contact SOS calls first |
+| `POST/PATCH/DELETE /emergency-location-shares[/{share_id}]` | token | Start/update/end a short-lived SOS location share ([SMS setup](docs/emergency-sms.md)) |
+| `GET /emergency-location-shares/{share_id}` | link | Read the latest location using an unguessable expiring token |
 | `POST /reports` | token | Create a report; translates if needed, then runs AI analysis |
 | `GET /reports` | token | List the caller's own reports (paged) |
 | `POST /reporting/transcriptions` | token | Raw audio body to a draft transcript (`language_hint` query) |
