@@ -4,8 +4,10 @@ After login, Emergency has an **Add a contact** button. The form accepts a name,
 Sri Lankan phone number, and optional relationship. The browser normalizes local
 numbers such as `077 123 4567` to `+94771234567`. Saved contacts appear on Emergency
 as call links. Account > Emergency contacts also supports editing, deleting,
-and selecting the primary contact. SOS calls the first contact after its existing
-cancellable countdown. Adding or saving a contact does not call anyone.
+and selecting the primary contact. SOS shows **Call** and **Send location**, with
+slot 0 selected by default. Send location opens a prefilled SMS for the user to
+review and send; see [SMS and tracking setup](emergency-sms.md).
+Adding or saving a contact does not call anyone or send a message.
 
 ## Required Supabase setup
 
